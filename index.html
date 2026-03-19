@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EcomBoost Analytics</title>
+    <link rel="icon" href="/favicon.svg" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #0d0f12; }
+      #root { min-height: 100vh; }
+
+      /* Scrollbar */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: #0d0f12; }
+      ::-webkit-scrollbar-thumb { background: #2a2d35; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #3a3d45; }
+
+      /* Select / input date dark override */
+      select, input[type="date"] { color-scheme: dark; }
+
+      /* Mobile base */
+      @media (max-width: 768px) {
+        .sidebar-full { display: none !important; }
+        .mobile-header { display: flex !important; }
+        .main-grid-2col { grid-template-columns: 1fr !important; }
+        .main-grid-3col { grid-template-columns: 1fr 1fr !important; }
+        .kanban-grid { grid-template-columns: 1fr !important; }
+        .hide-mobile { display: none !important; }
+        .phase-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        .creative-grid { grid-template-columns: 1fr 1fr !important; }
+        .picker-grid { grid-template-columns: 1fr !important; }
+        .settings-grid { grid-template-columns: 1fr !important; }
+        .pdf-layout { flex-direction: column !important; }
+        .pdf-controls { width: 100% !important; max-height: 40vh; overflow-y: auto; }
+      }
+      @media (max-width: 480px) {
+        .main-grid-3col { grid-template-columns: 1fr !important; }
+        .creative-grid { grid-template-columns: 1fr !important; }
+        .phase-grid { grid-template-columns: 1fr 1fr !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

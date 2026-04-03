@@ -667,9 +667,9 @@ const COLUMNS = [
   { id: "done",       label: "Listo",       color: "#4ade80" },
 ];
 
-function TaskCard({ task, canEdit, onMove, onDelete }) {
-  const acc      = ACCOUNTS.find(a => a.id === task.account);
-  const assignee = USERS.find(u => u.id === task.assignee);
+function TaskCard({ task, canEdit, onMove, onDelete, allAccounts: taskAccounts, allUsers: taskUsers }) {
+  const acc      = (taskAccounts || ACCOUNTS).find(a => a.id === task.account);
+  const assignee = (taskUsers || USERS).find(u => u.id === task.assignee);
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== "done";
   return (
     <div style={{ background: "#16181c", border: "1px solid #1c1e22", borderRadius: 10, padding: "12px 13px", marginBottom: 8 }}>
@@ -707,13 +707,14 @@ function TaskCard({ task, canEdit, onMove, onDelete }) {
   );
 }
 
-function NewTaskModal({ userAccounts, onSave, onClose, currentUser }) {
+function NewTaskModal({ userAccounts, onSave, onClose, currentUser, activeProjectId, allUsers }) {
+  const users = allUsers || USERS;
   const [form, setForm] = useState({
     title: "", desc: "", status: "todo", priority: "medium",
-    assignee: currentUser.id, account: userAccounts[0]?.id || "",
+    assignee: currentUser.id, account: activeProjectId || userAccounts[0]?.id || "",
     dueDate: "", type: currentUser.role === "client" ? "client" : "team",
   });
-  const eligible = currentUser.role === "client" ? USERS.filter(u => u.id === currentUser.id) : USERS;
+  const eligible = currentUser.role === "client" ? users.filter(u => u.id === currentUser.id) : users;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.82)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <div style={{ background: "#16181c", border: "1px solid #2a2d35", borderRadius: 16, padding: 28, width: 440 }}>
@@ -771,8 +772,11 @@ function NewTaskModal({ userAccounts, onSave, onClose, currentUser }) {
   );
 }
 
-function TasksModule({ currentUser, userAccounts }) {
-  const [tasks, setTasks] = useState(INIT_TASKS);
+function TasksModule({ currentUser, userAccounts, activeProjectId, allUsers, allAccounts }) {
+  const [tasks, setTasks] = useState(() => {
+    try { const s = localStorage.getItem("eg_tasks"); return s ? JSON.parse(s) : INIT_TASKS; } catch { return INIT_TASKS; }
+  });
+  useEffect(() => { try { localStorage.setItem("eg_tasks", JSON.stringify(tasks)); } catch {} }, [tasks]);
   const [showModal, setShowModal] = useState(false);
   const [viewFilter, setViewFilter] = useState("all");
   const [accFilter, setAccFilter] = useState("all");
@@ -834,14 +838,15 @@ function TasksModule({ currentUser, userAccounts }) {
               {colTasks.map(task => (
                 <TaskCard key={task.id} task={task} canEdit={canEdit || isClient}
                   onMove={(id, s) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: s } : t))}
-                  onDelete={id => setTasks(prev => prev.filter(t => t.id !== id))} />
+                  onDelete={id => setTasks(prev => prev.filter(t => t.id !== id))}
+                  allAccounts={allAccounts} allUsers={allUsers} />
               ))}
               {colTasks.length === 0 && <div style={{ textAlign: "center", paddingTop: 40, color: "#2a2d35", fontSize: 12 }}>Sin tareas</div>}
             </div>
           );
         })}
       </div>
-      {showModal && <NewTaskModal userAccounts={userAccounts} onSave={t => { setTasks(p => [...p, t]); setShowModal(false); toast("Tarea creada"); }} onClose={() => setShowModal(false)} currentUser={currentUser} />}
+      {showModal && <NewTaskModal userAccounts={userAccounts} onSave={t => { setTasks(p => [...p, t]); setShowModal(false); toast("Tarea creada"); }} onClose={() => setShowModal(false)} currentUser={currentUser} activeProjectId={activeProjectId} allUsers={allUsers} />}
     </div>
   );
 }
@@ -1417,9 +1422,15 @@ export default function App() {
   const [accountGoals, setAccountGoals] = useState(
     Object.fromEntries(ACCOUNTS.map(a => [a.id, { ...a.goals }]))
   );
-  // Global editable accounts + users (managed in Settings)
-  const [allAccounts, setAllAccounts] = useState(ACCOUNTS);
-  const [allUsers, setAllUsers]       = useState(USERS);
+  // Global editable accounts + users (managed in Settings) — persisted in localStorage
+  const [allAccounts, setAllAccounts] = useState(() => {
+    try { const s = localStorage.getItem("eg_accounts"); return s ? JSON.parse(s) : ACCOUNTS; } catch { return ACCOUNTS; }
+  });
+  const [allUsers, setAllUsers] = useState(() => {
+    try { const s = localStorage.getItem("eg_users"); return s ? JSON.parse(s) : USERS; } catch { return USERS; }
+  });
+  useEffect(() => { try { localStorage.setItem("eg_accounts", JSON.stringify(allAccounts)); } catch {} }, [allAccounts]);
+  useEffect(() => { try { localStorage.setItem("eg_users", JSON.stringify(allUsers)); } catch {} }, [allUsers]);
   const [loading, setLoading]         = useState(false);
   const [mobileMenu, setMobileMenu]   = useState(false);
 
@@ -1671,7 +1682,7 @@ export default function App() {
             </div>
           )}
 
-          {nav === "tasks" && <TasksModule currentUser={user} userAccounts={userAccounts} />}
+          {nav === "tasks" && <TasksModule currentUser={user} userAccounts={userAccounts} activeProjectId={activeProjectId} allUsers={allUsers} allAccounts={allAccounts} />}
 
           {nav === "settings" && canEdit && <SettingsModule allAccounts={allAccounts} setAllAccounts={setAllAccounts} allUsers={allUsers} setAllUsers={setAllUsers} />}
 

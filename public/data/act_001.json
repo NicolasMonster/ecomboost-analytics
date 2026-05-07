@@ -1,0 +1,29 @@
+{
+  "id": "act_001",
+  "name": "Powernax",
+  "color": "#e8572a",
+  "logo": "PX",
+  "goals": { "roas": 3.5, "cpa": 6.0, "ctr": 1.8, "budget": 2500 },
+  "funnel": {
+    "creativos":  { "alcance": 142000, "impresiones": 801000, "ctrUnico": 7.22, "clicsEnlace": 6535, "cpm": 2130 },
+    "acciones":   { "addToCart": 913, "pagosIniciados": 242, "costoPagosIniciados": 7053 },
+    "conversion": { "inversion": 1840, "facturacion": 7360, "costoCompra": 5.2, "roas": 4.0, "conversiones": 354 }
+  },
+  "daily": [
+    { "day": "Lun", "spend": 263, "revenue": 1051, "roas": 4.0, "conversions": 51 },
+    { "day": "Mar", "spend": 280, "revenue": 1176, "roas": 4.2, "conversions": 54 },
+    { "day": "Mié", "spend": 245, "revenue": 980,  "roas": 4.0, "conversions": 47 },
+    { "day": "Jue", "spend": 271, "revenue": 1138, "roas": 4.2, "conversions": 53 },
+    { "day": "Vie", "spend": 310, "revenue": 1333, "roas": 4.3, "conversions": 61 },
+    { "day": "Sáb", "spend": 258, "revenue": 955,  "roas": 3.7, "conversions": 50 },
+    { "day": "Dom", "spend": 213, "revenue": 727,  "roas": 3.4, "conversions": 38 }
+  ],
+  "campaigns": [
+    { "id": "c1", "name": "Proteinas - ABO Testing",   "status": "ACTIVE", "spend": 420, "revenue": 1890, "roas": 4.5, "cpa": 4.8, "ctr": 2.4, "conversions": 88  },
+    { "id": "c2", "name": "Quemadores - CBO Scale",    "status": "ACTIVE", "spend": 680, "revenue": 2584, "roas": 3.8, "cpa": 5.6, "ctr": 2.1, "conversions": 121 },
+    { "id": "c3", "name": "Aminoacidos - Retargeting", "status": "ACTIVE", "spend": 310, "revenue": 1364, "roas": 4.4, "cpa": 4.9, "ctr": 1.9, "conversions": 63  },
+    { "id": "c4", "name": "Creatina - Testing",        "status": "PAUSED", "spend": 240, "revenue": 720,  "roas": 3.0, "cpa": 6.9, "ctr": 1.5, "conversions": 35  },
+    { "id": "c5", "name": "Brand Awareness Q1",        "status": "ACTIVE", "spend": 190, "revenue": 802,  "roas": 4.2, "cpa": 5.4, "ctr": 1.8, "conversions": 35  }
+  ],
+  "updatedAt": "2026-05-07"
+}

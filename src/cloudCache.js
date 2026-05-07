@@ -1,10 +1,12 @@
-import { todayStr } from './dataStore';
-
 const BASE = '/api/metrics';
+
+function todayStr() {
+  return new Date().toISOString().split('T')[0];
+}
 
 export async function loadFromCloud(accountId, date = todayStr()) {
   try {
-    const res = await fetch(`${BASE}?accountId=${accountId}&date=${date}`);
+    const res = await fetch(`${BASE}?accountId=${encodeURIComponent(accountId)}&date=${date}`);
     if (!res.ok) return null;
     const { data, stale } = await res.json();
     return { data, stale };
@@ -21,6 +23,6 @@ export async function saveToCloud(accountId, data, date = todayStr()) {
       body: JSON.stringify({ accountId, date, data }),
     });
   } catch {
-    // Cloud save is best-effort; localStorage is the fallback
+    // Best-effort, localStorage is the fallback
   }
 }

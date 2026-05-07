@@ -1,0 +1,28 @@
+{
+  "id": "act_002",
+  "name": "Ruby Fajas",
+  "color": "#d63384",
+  "logo": "RB",
+  "goals": { "roas": 4.0, "cpa": 8.0, "ctr": 2.0, "budget": 3200 },
+  "funnel": {
+    "creativos":  { "alcance": 220000, "impresiones": 1200000, "ctrUnico": 5.8, "clicsEnlace": 9600, "cpm": 2480 },
+    "acciones":   { "addToCart": 1420, "pagosIniciados": 398, "costoPagosIniciados": 7490 },
+    "conversion": { "inversion": 2980, "facturacion": 10430, "costoCompra": 9.4, "roas": 3.5, "conversiones": 317 }
+  },
+  "daily": [
+    { "day": "Lun", "spend": 426, "revenue": 1490, "roas": 3.5, "conversions": 45 },
+    { "day": "Mar", "spend": 455, "revenue": 1638, "roas": 3.6, "conversions": 49 },
+    { "day": "Mié", "spend": 390, "revenue": 1365, "roas": 3.5, "conversions": 41 },
+    { "day": "Jue", "spend": 442, "revenue": 1593, "roas": 3.6, "conversions": 48 },
+    { "day": "Vie", "spend": 510, "revenue": 1836, "roas": 3.6, "conversions": 55 },
+    { "day": "Sáb", "spend": 398, "revenue": 1393, "roas": 3.5, "conversions": 42 },
+    { "day": "Dom", "spend": 359, "revenue": 1115, "roas": 3.1, "conversions": 37 }
+  ],
+  "campaigns": [
+    { "id": "c6", "name": "Fajas Colombianas - Scale", "status": "ACTIVE", "spend": 1200, "revenue": 4200, "roas": 3.5, "cpa": 9.8,  "ctr": 1.7, "conversions": 122 },
+    { "id": "c7", "name": "Body Shapers - ABO Test",   "status": "ACTIVE", "spend": 890,  "revenue": 2938, "roas": 3.3, "cpa": 9.1,  "ctr": 1.5, "conversions": 98  },
+    { "id": "c8", "name": "Retargeting Abandonos",     "status": "ACTIVE", "spend": 560,  "revenue": 2240, "roas": 4.0, "cpa": 8.0,  "ctr": 1.9, "conversions": 70  },
+    { "id": "c9", "name": "Brasil - Prospecting",      "status": "PAUSED", "spend": 330,  "revenue": 1052, "roas": 3.2, "cpa": 11.0, "ctr": 1.4, "conversions": 30  }
+  ],
+  "updatedAt": "2026-05-07"
+}

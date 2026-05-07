@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { loadAccounts, saveAccounts, loadAccountsFromFiles, exportMetrics, importMetrics, getSnapshots, todayStr } from "./dataStore";
+import { verifyToken, getAdAccounts, fetchAccountMetrics } from "./metaApi";
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -667,9 +669,9 @@ const COLUMNS = [
   { id: "done",       label: "Listo",       color: "#4ade80" },
 ];
 
-function TaskCard({ task, canEdit, onMove, onDelete }) {
-  const acc      = ACCOUNTS.find(a => a.id === task.account);
-  const assignee = USERS.find(u => u.id === task.assignee);
+function TaskCard({ task, canEdit, onMove, onDelete, allAccounts: taskAccounts, allUsers: taskUsers }) {
+  const acc      = (taskAccounts || ACCOUNTS).find(a => a.id === task.account);
+  const assignee = (taskUsers || USERS).find(u => u.id === task.assignee);
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== "done";
   return (
     <div style={{ background: "#16181c", border: "1px solid #1c1e22", borderRadius: 10, padding: "12px 13px", marginBottom: 8 }}>
@@ -707,13 +709,14 @@ function TaskCard({ task, canEdit, onMove, onDelete }) {
   );
 }
 
-function NewTaskModal({ userAccounts, onSave, onClose, currentUser }) {
+function NewTaskModal({ userAccounts, onSave, onClose, currentUser, activeProjectId, allUsers }) {
+  const users = allUsers || USERS;
   const [form, setForm] = useState({
     title: "", desc: "", status: "todo", priority: "medium",
-    assignee: currentUser.id, account: userAccounts[0]?.id || "",
+    assignee: currentUser.id, account: activeProjectId || userAccounts[0]?.id || "",
     dueDate: "", type: currentUser.role === "client" ? "client" : "team",
   });
-  const eligible = currentUser.role === "client" ? USERS.filter(u => u.id === currentUser.id) : USERS;
+  const eligible = currentUser.role === "client" ? users.filter(u => u.id === currentUser.id) : users;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.82)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <div style={{ background: "#16181c", border: "1px solid #2a2d35", borderRadius: 16, padding: 28, width: 440 }}>
@@ -771,8 +774,11 @@ function NewTaskModal({ userAccounts, onSave, onClose, currentUser }) {
   );
 }
 
-function TasksModule({ currentUser, userAccounts }) {
-  const [tasks, setTasks] = useState(INIT_TASKS);
+function TasksModule({ currentUser, userAccounts, activeProjectId, allUsers, allAccounts }) {
+  const [tasks, setTasks] = useState(() => {
+    try { const s = localStorage.getItem("eg_tasks"); return s ? JSON.parse(s) : INIT_TASKS; } catch { return INIT_TASKS; }
+  });
+  useEffect(() => { try { localStorage.setItem("eg_tasks", JSON.stringify(tasks)); } catch {} }, [tasks]);
   const [showModal, setShowModal] = useState(false);
   const [viewFilter, setViewFilter] = useState("all");
   const [accFilter, setAccFilter] = useState("all");
@@ -834,14 +840,105 @@ function TasksModule({ currentUser, userAccounts }) {
               {colTasks.map(task => (
                 <TaskCard key={task.id} task={task} canEdit={canEdit || isClient}
                   onMove={(id, s) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: s } : t))}
-                  onDelete={id => setTasks(prev => prev.filter(t => t.id !== id))} />
+                  onDelete={id => setTasks(prev => prev.filter(t => t.id !== id))}
+                  allAccounts={allAccounts} allUsers={allUsers} />
               ))}
               {colTasks.length === 0 && <div style={{ textAlign: "center", paddingTop: 40, color: "#2a2d35", fontSize: 12 }}>Sin tareas</div>}
             </div>
           );
         })}
       </div>
-      {showModal && <NewTaskModal userAccounts={userAccounts} onSave={t => { setTasks(p => [...p, t]); setShowModal(false); toast("Tarea creada"); }} onClose={() => setShowModal(false)} currentUser={currentUser} />}
+      {showModal && <NewTaskModal userAccounts={userAccounts} onSave={t => { setTasks(p => [...p, t]); setShowModal(false); toast("Tarea creada"); }} onClose={() => setShowModal(false)} currentUser={currentUser} activeProjectId={activeProjectId} allUsers={allUsers} />}
+    </div>
+  );
+}
+
+// ─── DATOS TAB ────────────────────────────────────────────────────────────────
+function DatosTab({ allAccounts, setAllAccounts }) {
+  const [snapshots, setSnapshots] = useState(() => getSnapshots());
+  const [importing, setImporting] = useState(false);
+  const dates = Object.keys(snapshots).sort().reverse();
+
+  function handleImport(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    importMetrics(file)
+      .then(merged => {
+        setSnapshots(merged);
+        const latest = Object.keys(merged).sort().reverse()[0];
+        if (latest && merged[latest]) setAllAccounts(Object.values(merged[latest]));
+        toast("Métricas importadas correctamente");
+      })
+      .catch(err => toast(err, "error"))
+      .finally(() => setImporting(false));
+    e.target.value = "";
+  }
+
+  const card = { background: "#111215", border: "1px solid #1c1e22", borderRadius: 14, padding: "20px 20px", marginBottom: 16 };
+
+  return (
+    <div>
+      <div style={{ ...card }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", marginBottom: 4 }}>Exportar métricas</div>
+        <div style={{ fontSize: 11, color: "#555", marginBottom: 14 }}>Descargá todo el historial de snapshots como un archivo .json</div>
+        <button onClick={exportMetrics}
+          style={{ width: "100%", padding: "11px 0", background: "#e8572a", border: "none", borderRadius: 9, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+          ↓ Descargar ecomboost-metricas.json
+        </button>
+      </div>
+
+      <div style={{ ...card }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", marginBottom: 4 }}>Importar métricas</div>
+        <div style={{ fontSize: 11, color: "#555", marginBottom: 14 }}>Cargá un .json previamente exportado para restaurar o fusionar datos</div>
+        <label style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "11px 0", background: "#0d0f12", border: "1px dashed #2a2d35", borderRadius: 9, color: "#888", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+          {importing ? "⏳ Importando..." : "↑ Seleccionar archivo .json"}
+          <input type="file" accept=".json" onChange={handleImport} style={{ display: "none" }} />
+        </label>
+      </div>
+
+      <div style={{ ...card, marginBottom: 0 }}>
+        <div style={{ fontSize: 11, color: "#666", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 14 }}>
+          Snapshots guardados ({dates.length} día{dates.length !== 1 ? "s" : ""})
+        </div>
+        {dates.length === 0 ? (
+          <div style={{ padding: 16, textAlign: "center", color: "#444", fontSize: 12 }}>
+            Las métricas se guardan automáticamente cada vez que alguien entra al sistema.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {dates.map(date => {
+              const dayData = snapshots[date];
+              const ids = Object.keys(dayData);
+              const isToday = date === todayStr();
+              return (
+                <div key={date} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", borderRadius: 9, border: `1px solid ${isToday ? "#e8572a44" : "#1c1e22"}`, background: isToday ? "#e8572a0d" : "#0d0f12" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: isToday ? "#e8572a" : "#2a2d35", flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: isToday ? 700 : 400, color: isToday ? "#f0f0f0" : "#888" }}>
+                      {date}{isToday && <span style={{ fontSize: 10, color: "#e8572a", marginLeft: 8, fontWeight: 700 }}>HOY</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>
+                      {ids.length} cuenta{ids.length !== 1 ? "s" : ""} · {ids.map(id => dayData[id]?.name).filter(Boolean).join(", ")}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const accs = Object.values(dayData);
+                      if (accs.length && window.confirm(`¿Restaurar métricas del ${date}?`)) {
+                        setAllAccounts(accs);
+                        toast(`Métricas restauradas al ${date}`);
+                      }
+                    }}
+                    style={{ padding: "5px 11px", background: "none", border: "1px solid #2a2d35", borderRadius: 7, color: "#666", fontSize: 11, cursor: "pointer" }}>
+                    Restaurar
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -851,14 +948,22 @@ function SettingsModule({ allAccounts, setAllAccounts, allUsers, setAllUsers }) 
   const [tab, setTab] = useState("accounts");
 
   // ── META API STATE ──────────────────────────────────────────────────────────
-  const [metaConfigs, setMetaConfigs] = useState(
-    Object.fromEntries(allAccounts.map(a => [a.id, { token: "", adAccountId: "", connected: false, lastSync: null, adAccounts: [] }]))
-  );
+  const [metaConfigs, setMetaConfigs] = useState(() => {
+    const empty = Object.fromEntries(allAccounts.map(a => [a.id, { token: "", adAccountId: "", connected: false, lastSync: null, adAccounts: [] }]));
+    try {
+      const saved = localStorage.getItem("eg_meta_configs");
+      return saved ? { ...empty, ...JSON.parse(saved) } : empty;
+    } catch { return empty; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("eg_meta_configs", JSON.stringify(metaConfigs)); } catch {}
+  }, [metaConfigs]);
   const [activeMetaAcc, setActiveMetaAcc] = useState(allAccounts[0]?.id || "");
   const [showToken, setShowToken]   = useState(false);
   const [testing, setTesting]       = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [fetching, setFetching]     = useState(false);
+  const [syncing, setSyncing]       = useState(false);
 
   const metaCfg = metaConfigs[activeMetaAcc] || { token: "", adAccountId: "", connected: false, adAccounts: [] };
   const metaAcc = allAccounts.find(a => a.id === activeMetaAcc);
@@ -867,12 +972,12 @@ function SettingsModule({ allAccounts, setAllAccounts, allUsers, setAllUsers }) 
   async function testToken() {
     if (!metaCfg.token.trim()) { setTestResult({ ok: false, msg: "Ingresá un token primero" }); return; }
     setTesting(true); setTestResult(null);
-    await new Promise(r => setTimeout(r, 1600));
-    if (metaCfg.token.startsWith("EAA") || metaCfg.token.length > 20) {
-      setTestResult({ ok: true, msg: "Token válido · Conectado correctamente" });
+    try {
+      const me = await verifyToken(metaCfg.token);
+      setTestResult({ ok: true, msg: `Token válido · ${me.name} (ID: ${me.id})` });
       updMeta({ connected: true, lastSync: new Date().toLocaleString("es-AR") });
-    } else {
-      setTestResult({ ok: false, msg: "Token inválido o expirado." });
+    } catch (err) {
+      setTestResult({ ok: false, msg: err.message || "Token inválido o expirado." });
       updMeta({ connected: false });
     }
     setTesting(false);
@@ -881,12 +986,34 @@ function SettingsModule({ allAccounts, setAllAccounts, allUsers, setAllUsers }) 
   async function fetchMetaAccounts() {
     if (!metaCfg.connected) { setTestResult({ ok: false, msg: "Primero verificá el token" }); return; }
     setFetching(true);
-    await new Promise(r => setTimeout(r, 1200));
-    updMeta({ adAccounts: [
-      { id: "act_" + Math.random().toString(36).slice(2, 10), name: `${metaAcc?.name} — Principal` },
-      { id: "act_" + Math.random().toString(36).slice(2, 10), name: `${metaAcc?.name} — Test` },
-    ]});
+    try {
+      const accounts = await getAdAccounts(metaCfg.token);
+      updMeta({ adAccounts: accounts.map(a => ({ id: a.id, name: a.name })) });
+    } catch (err) {
+      setTestResult({ ok: false, msg: err.message });
+    }
     setFetching(false);
+  }
+
+  async function syncMetrics() {
+    if (!metaCfg.connected || !metaCfg.adAccountId) {
+      toast("Primero verificá el token y seleccioná una cuenta publicitaria", "warn");
+      return;
+    }
+    setSyncing(true);
+    try {
+      const metrics = await fetchAccountMetrics(metaCfg.adAccountId, metaCfg.token);
+      setAllAccounts(prev => prev.map(a =>
+        a.id === activeMetaAcc
+          ? { ...a, funnel: metrics.funnel, daily: metrics.daily, campaigns: metrics.campaigns }
+          : a
+      ));
+      updMeta({ lastSync: new Date().toLocaleString("es-AR") });
+      toast(`Métricas de ${metaAcc?.name} actualizadas desde Meta Ads`);
+    } catch (err) {
+      toast(err.message || "Error al conectar con Meta API", "error");
+    }
+    setSyncing(false);
   }
 
   // ── ACCOUNTS STATE ──────────────────────────────────────────────────────────
@@ -940,6 +1067,7 @@ function SettingsModule({ allAccounts, setAllAccounts, allUsers, setAllUsers }) 
     { id: "accounts", label: "Cuentas publicitarias", icon: "◈" },
     { id: "users",    label: "Usuarios y accesos",    icon: "◎" },
     { id: "meta",     label: "Meta API",              icon: "𝗳" },
+    { id: "datos",    label: "Datos & Historial",     icon: "◫" },
   ];
 
   const inp = (extra = {}) => ({ background: "#0d0f12", border: "1px solid #2a2d35", borderRadius: 8, color: "#f0f0f0", padding: "10px 13px", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box", ...extra });
@@ -1125,14 +1253,21 @@ function SettingsModule({ allAccounts, setAllAccounts, allUsers, setAllUsers }) 
                 </div>
               )}
               {metaCfg.adAccountId && <div style={{ padding: "10px 12px", background: "#0a2e1a", border: "1px solid #166534", borderRadius: 8, marginBottom: 12 }}><div style={{ fontSize: 10, color: "#4ade80", fontWeight: 700, marginBottom: 2 }}>✓ Configurado</div><div style={{ fontSize: 11, color: "#4ade80", fontFamily: "monospace" }}>{metaCfg.adAccountId}</div></div>}
-              <button onClick={() => { if (metaCfg.connected && metaCfg.adAccountId) alert("✓ Guardado correctamente."); }}
-                style={{ width: "100%", padding: "10px 0", background: metaCfg.connected && metaCfg.adAccountId ? "#e8572a" : "#1c1e22", border: "none", borderRadius: 8, color: metaCfg.connected && metaCfg.adAccountId ? "#fff" : "#444", cursor: metaCfg.connected && metaCfg.adAccountId ? "pointer" : "not-allowed", fontSize: 13, fontWeight: 700 }}>
-                💾 Guardar y sincronizar
+              <button onClick={syncMetrics} disabled={syncing || !metaCfg.connected || !metaCfg.adAccountId}
+                style={{ width: "100%", padding: "12px 0", background: metaCfg.connected && metaCfg.adAccountId ? "#e8572a" : "#1c1e22", border: "none", borderRadius: 8, color: metaCfg.connected && metaCfg.adAccountId ? "#fff" : "#444", cursor: metaCfg.connected && metaCfg.adAccountId ? "pointer" : "not-allowed", fontSize: 14, fontWeight: 700 }}>
+                {syncing ? "⏳ Trayendo métricas..." : "↻ Sincronizar métricas reales"}
               </button>
+              {metaCfg.lastSync && (
+                <div style={{ fontSize: 11, color: "#555", textAlign: "center", marginTop: 8 }}>
+                  Última sync: {metaCfg.lastSync}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
+
+      {tab === "datos" && <DatosTab allAccounts={allAccounts} setAllAccounts={setAllAccounts} />}
 
       {/* ── ACCOUNT MODAL ── */}
       {showAccModal && (
@@ -1417,9 +1552,24 @@ export default function App() {
   const [accountGoals, setAccountGoals] = useState(
     Object.fromEntries(ACCOUNTS.map(a => [a.id, { ...a.goals }]))
   );
-  // Global editable accounts + users (managed in Settings)
-  const [allAccounts, setAllAccounts] = useState(ACCOUNTS);
-  const [allUsers, setAllUsers]       = useState(USERS);
+  // Global editable accounts + users — persisted in localStorage + daily snapshots
+  const [allAccounts, setAllAccounts] = useState(() => loadAccounts(ACCOUNTS));
+  const [allUsers, setAllUsers] = useState(() => {
+    try { const s = localStorage.getItem("eg_users"); return s ? JSON.parse(s) : USERS; } catch { return USERS; }
+  });
+  useEffect(() => { saveAccounts(allAccounts); }, [allAccounts]);
+  useEffect(() => { try { localStorage.setItem("eg_users", JSON.stringify(allUsers)); } catch {} }, [allUsers]);
+
+  // On first ever visit (no snapshots), load from /public/data/*.json files
+  useEffect(() => {
+    const snapshots = getSnapshots();
+    if (Object.keys(snapshots).length === 0 && localStorage.getItem("eg_accounts") === null) {
+      loadAccountsFromFiles().then(fileAccounts => {
+        if (fileAccounts.length > 0) setAllAccounts(fileAccounts);
+      });
+    }
+  }, []);
+
   const [loading, setLoading]         = useState(false);
   const [mobileMenu, setMobileMenu]   = useState(false);
 
@@ -1431,10 +1581,8 @@ export default function App() {
   }
 
   function selectProject(id) {
-    setLoading(true);
     setActiveProjectId(id);
     setNav("dashboard");
-    setTimeout(() => setLoading(false), 800);
   }
 
   function exitProject() {
@@ -1671,7 +1819,7 @@ export default function App() {
             </div>
           )}
 
-          {nav === "tasks" && <TasksModule currentUser={user} userAccounts={userAccounts} />}
+          {nav === "tasks" && <TasksModule currentUser={user} userAccounts={userAccounts} activeProjectId={activeProjectId} allUsers={allUsers} allAccounts={allAccounts} />}
 
           {nav === "settings" && canEdit && <SettingsModule allAccounts={allAccounts} setAllAccounts={setAllAccounts} allUsers={allUsers} setAllUsers={setAllUsers} />}
 

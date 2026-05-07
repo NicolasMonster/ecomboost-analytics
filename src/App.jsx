@@ -1,5 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { loadFromCloud, saveToCloud } from "./cloudCache";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -1423,34 +1422,15 @@ export default function App() {
   const [accountGoals, setAccountGoals] = useState(
     Object.fromEntries(ACCOUNTS.map(a => [a.id, { ...a.goals }]))
   );
-  // Global editable accounts + users — persisted in localStorage + cloud
+  // Global editable accounts + users — persisted in localStorage
   const [allAccounts, setAllAccounts] = useState(() => {
     try { const s = localStorage.getItem("eg_accounts"); return s ? JSON.parse(s) : ACCOUNTS; } catch { return ACCOUNTS; }
   });
   const [allUsers, setAllUsers] = useState(() => {
     try { const s = localStorage.getItem("eg_users"); return s ? JSON.parse(s) : USERS; } catch { return USERS; }
   });
-
-  // Save to localStorage on every change
   useEffect(() => { try { localStorage.setItem("eg_accounts", JSON.stringify(allAccounts)); } catch {} }, [allAccounts]);
   useEffect(() => { try { localStorage.setItem("eg_users", JSON.stringify(allUsers)); } catch {} }, [allUsers]);
-
-  // Cloud sync: load on init, save on changes (debounced)
-  const cloudSaveTimer = useRef(null);
-  useEffect(() => {
-    loadFromCloud("all_accounts").then(cached => {
-      if (cached?.data?.accounts) {
-        setAllAccounts(cached.data.accounts);
-        try { localStorage.setItem("eg_accounts", JSON.stringify(cached.data.accounts)); } catch {}
-      }
-    });
-  }, []);
-  useEffect(() => {
-    clearTimeout(cloudSaveTimer.current);
-    cloudSaveTimer.current = setTimeout(() => {
-      saveToCloud("all_accounts", { accounts: allAccounts });
-    }, 3000);
-  }, [allAccounts]);
   const [loading, setLoading]         = useState(false);
   const [mobileMenu, setMobileMenu]   = useState(false);
 

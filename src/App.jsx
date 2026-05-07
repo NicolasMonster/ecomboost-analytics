@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { loadAccounts, saveAccounts, loadAccountsFromFiles, exportMetrics, importMetrics, getSnapshots, todayStr } from "./dataStore";
 import { verifyToken, getAdAccounts, fetchAccountMetrics } from "./metaApi";
+import { loadFromCloud, saveToCloud } from "./cloudCache";
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -1002,6 +1003,21 @@ function SettingsModule({ allAccounts, setAllAccounts, allUsers, setAllUsers }) 
     }
     setSyncing(true);
     try {
+      // Try cloud cache first (fast path)
+      const cached = await loadFromCloud(activeMetaAcc);
+      if (cached && !cached.stale) {
+        setAllAccounts(prev => prev.map(a =>
+          a.id === activeMetaAcc
+            ? { ...a, funnel: cached.data.funnel, daily: cached.data.daily, campaigns: cached.data.campaigns }
+            : a
+        ));
+        updMeta({ lastSync: new Date().toLocaleString("es-AR") });
+        toast(`Métricas de ${metaAcc?.name} cargadas desde caché`);
+        setSyncing(false);
+        return;
+      }
+
+      // Cache miss or stale → fetch from Meta API
       const metrics = await fetchAccountMetrics(metaCfg.adAccountId, metaCfg.token);
       setAllAccounts(prev => prev.map(a =>
         a.id === activeMetaAcc
@@ -1009,12 +1025,29 @@ function SettingsModule({ allAccounts, setAllAccounts, allUsers, setAllUsers }) 
           : a
       ));
       updMeta({ lastSync: new Date().toLocaleString("es-AR") });
+
+      // Save to cloud in background
+      saveToCloud(activeMetaAcc, { funnel: metrics.funnel, daily: metrics.daily, campaigns: metrics.campaigns });
+
       toast(`Métricas de ${metaAcc?.name} actualizadas desde Meta Ads`);
     } catch (err) {
       toast(err.message || "Error al conectar con Meta API", "error");
     }
     setSyncing(false);
   }
+
+  // Auto-load from cloud on account switch
+  useEffect(() => {
+    if (!activeMetaAcc) return;
+    loadFromCloud(activeMetaAcc).then(cached => {
+      if (!cached) return;
+      setAllAccounts(prev => prev.map(a =>
+        a.id === activeMetaAcc
+          ? { ...a, funnel: cached.data.funnel, daily: cached.data.daily, campaigns: cached.data.campaigns }
+          : a
+      ));
+    });
+  }, [activeMetaAcc]);
 
   // ── ACCOUNTS STATE ──────────────────────────────────────────────────────────
   const [showAccModal, setShowAccModal] = useState(false);

@@ -1454,43 +1454,17 @@ function InviteUserModal({user, allAccounts, onSave, onClose, toast}) {
         // Editar: actualizar perfil y accesos
         await onSave({ name: name.trim(), email: email.trim(), role, selAccounts });
       } else {
-        // Crear usuario nuevo
+        // Crear usuario nuevo vía Edge Function (service role — no rompe la sesión master)
         if (!password.trim()) { toast("Ingresá una contraseña temporal","warn"); setSaving(false); return; }
 
-        // CRÍTICO: guardar sesión del master ANTES del signUp.
-        // Si email confirmation está desactivado en Supabase, signUp reemplaza la sesión activa
-        // con la del nuevo usuario, deslogueando al master. La restauramos inmediatamente después.
-        const { data: { session: masterSession } } = await supabase.auth.getSession();
-
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password: password.trim(),
-          options: { data: { name: name.trim() } }
+        const { data: result, error } = await supabase.functions.invoke("manage-user", {
+          body: { action: "create", name: name.trim(), email: email.trim(), password: password.trim(), role, accountIds: selAccounts },
         });
 
-        // Restaurar sesión del master siempre, haya error o no
-        if (masterSession?.access_token) {
-          await supabase.auth.setSession({
-            access_token:  masterSession.access_token,
-            refresh_token: masterSession.refresh_token,
-          });
-        }
+        if (error || result?.error) { toast("Error al crear usuario: "+(result?.error || error?.message),"error"); setSaving(false); return; }
+        if (!result?.id) { toast("No se pudo obtener el ID del nuevo usuario.","error"); setSaving(false); return; }
 
-        if (error) { toast("Error al crear usuario: "+error.message,"error"); setSaving(false); return; }
-        const uid = data.user?.id;
-        if (!uid) { toast("No se pudo obtener el ID del nuevo usuario.","error"); setSaving(false); return; }
-
-        // Crear perfil (puede fallar por RLS — no bloqueamos el flujo)
-        const { error: pe } = await supabase.from("profiles").upsert({ id: uid, email: email.trim(), name: name.trim(), role });
-        if (pe) console.warn("profiles upsert RLS:", pe.message);
-
-        // Guardar accesos
-        if (selAccounts.length > 0) {
-          const { error: ae } = await supabase.from("account_access").insert(selAccounts.map(aid=>({profile_id: uid, account_id: aid})));
-          if (ae) console.warn("account_access insert:", ae.message);
-        }
-
-        await onSave({ name: name.trim(), email: email.trim(), role, selAccounts, id: uid });
+        await onSave({ name: name.trim(), email: email.trim(), role, selAccounts, id: result.id });
         setDone(password.trim());
         setSaving(false);
         return;
@@ -1796,8 +1770,10 @@ function SettingsModule({currentUser, allAccounts, allUsers, setAllAccounts, set
   async function handleDeleteUser(id) {
     if (!confirm("¿Eliminar este usuario?")) return;
     if (isSupabaseConfigured && supabase) {
-      const {error} = await supabase.from("profiles").delete().eq("id", id);
-      if (error) { toast("Error al eliminar: "+error.message,"error"); return; }
+      const { data: result, error } = await supabase.functions.invoke("manage-user", {
+        body: { action: "delete", userId: id },
+      });
+      if (error || result?.error) { toast("Error al eliminar: "+(result?.error || error?.message),"error"); return; }
     }
     setAllUsers(p=>p.filter(u=>u.id!==id));
     toast("Usuario eliminado");

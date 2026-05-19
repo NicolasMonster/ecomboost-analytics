@@ -302,7 +302,7 @@ function PhaseBlock({ color, title, metrics }) {
       <div style={{background:color,borderRadius:9,padding:"9px 16px",marginBottom:10}}>
         <span style={{fontSize:12,fontWeight:800,color:"#fff"}}>{title}</span>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10}} className="phase-grid">
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10}} className="phase-grid phase-metrics-grid">
         {metrics.map(({label,value,type,goal,inv,highlight})=>{
           const c = goal ? sc(value,goal,inv,T) : null;
           return (
@@ -348,9 +348,12 @@ function PerfChart({ daily, color }) {
 // ─── CAMPAIGNS TABLE ──────────────────────────────────────────────────────────
 function CampaignsTable({ campaigns, goals }) {
   const T = useT();
-  const [filter, setFilter] = useState("ALL");
-  const [sk, setSk] = useState("spend");
-  const [sd, setSd] = useState(-1);
+  const [filter, setFilter] = useState(() => { try { return localStorage.getItem('camp_filter')||"ALL"; } catch { return "ALL"; } });
+  const [sk, setSk]         = useState(() => { try { return localStorage.getItem('camp_sk')||"spend"; } catch { return "spend"; } });
+  const [sd, setSd]         = useState(() => { try { return Number(localStorage.getItem('camp_sd')||"-1"); } catch { return -1; } });
+  useEffect(() => { try { localStorage.setItem('camp_filter', filter); } catch {} }, [filter]);
+  useEffect(() => { try { localStorage.setItem('camp_sk', sk); }     catch {} }, [sk]);
+  useEffect(() => { try { localStorage.setItem('camp_sd', String(sd)); } catch {} }, [sd]);
   const rows = useMemo(()=>{
     let d = filter==="ALL"?campaigns:campaigns.filter(c=>c.status===filter);
     return [...d].sort((a,b)=>(a[sk]-b[sk])*sd);
@@ -369,7 +372,7 @@ function CampaignsTable({ campaigns, goals }) {
         ))}
         <span style={{marginLeft:"auto",fontSize:11,color:T.textDim,alignSelf:"center"}}>{rows.length} campañas</span>
       </div>
-      <div style={{overflowX:"auto",borderRadius:8,border:`1px solid ${T.border}`}}>
+      <div className="campaigns-table-wrap" style={{overflowX:"auto",borderRadius:8,border:`1px solid ${T.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
           <thead>
             <tr>
@@ -467,61 +470,161 @@ function creativeRecommendation(cr, goals) {
   return `Performance estable. Monitorear frecuencia (${freq.toFixed(1)}x) y CTR (${cr.ctr.toFixed(2)}%).`;
 }
 
+// ─── RETENTION BAR ───────────────────────────────────────────────────────────
+function RetentionBar({ cr }) {
+  const T = useT();
+  if (cr.type !== "VIDEO" || !cr.videoViews3s) return null;
+
+  const W = 300, H = 36;
+  const uid = `r${(cr.id||"").replace(/\D/g,"").slice(-8)}`;
+
+  // Raw retention data points [videoProgress, retentionPct]
+  const raw = [
+    [0,   100],
+    [25,  cr.retention25  || 0],
+    [50,  cr.retention50  || 0],
+    [75,  cr.retention75  || 0],
+    [95,  cr.retention95  || 0],
+    [100, cr.retention100 || 0],
+  ];
+
+  // Keep only points with data; monotonically clamp so curve never goes up
+  let prev = 100;
+  const pts = raw.map(([x, y]) => {
+    const clamped = Math.min(prev, y);
+    prev = clamped;
+    return [x, clamped];
+  });
+
+  // SVG coordinate converters
+  const sx = x => (x / 100) * W;
+  const sy = y => H - (Math.max(0, Math.min(100, y)) / 100) * H;
+
+  // Catmull-Rom → cubic Bezier smooth curve
+  const buildPath = (points) => {
+    if (points.length < 2) return "";
+    let d = `M ${sx(points[0][0])},${sy(points[0][1])}`;
+    for (let i = 1; i < points.length; i++) {
+      const p0 = points[Math.max(0, i - 2)];
+      const p1 = points[i - 1];
+      const p2 = points[i];
+      const p3 = points[Math.min(points.length - 1, i + 1)];
+      const cp1x = sx(p1[0] + (p2[0] - p0[0]) / 6);
+      const cp1y = sy(p1[1] + (p2[1] - p0[1]) / 6);
+      const cp2x = sx(p2[0] - (p3[0] - p1[0]) / 6);
+      const cp2y = sy(p2[1] - (p3[1] - p1[1]) / 6);
+      d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${sx(p2[0])},${sy(p2[1])}`;
+    }
+    return d;
+  };
+
+  const linePath = buildPath(pts);
+  const fillPath = `${linePath} L ${W},${H} L 0,${H} Z`;
+  const ticks = [25, 50, 75, 100];
+
+  return (
+    <div style={{marginBottom:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+        <span style={{fontSize:9,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.06em"}}>Retención</span>
+        <span style={{fontSize:9,fontFamily:"monospace",color:"#a78bfa"}}>
+          {cr.retention50 > 0 ? `50% → ${cr.retention50.toFixed(0)}%` : ""}
+          {cr.avgWatchTime > 0 ? `  ${cr.avgWatchTime.toFixed(1)}s` : ""}
+        </span>
+      </div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H + 6}`} preserveAspectRatio="none" style={{display:"block",overflow:"visible"}}>
+        <defs>
+          <linearGradient id={`${uid}f`} x1="0" x2="1">
+            <stop offset="0%"   stopColor="#4ade80" stopOpacity="0.4"/>
+            <stop offset="45%"  stopColor="#fbbf24" stopOpacity="0.25"/>
+            <stop offset="100%" stopColor="#f87171" stopOpacity="0.08"/>
+          </linearGradient>
+          <linearGradient id={`${uid}l`} x1="0" x2="1">
+            <stop offset="0%"   stopColor="#4ade80"/>
+            <stop offset="50%"  stopColor="#fbbf24"/>
+            <stop offset="100%" stopColor="#f87171" stopOpacity="0.5"/>
+          </linearGradient>
+        </defs>
+        <path d={fillPath} fill={`url(#${uid}f)`}/>
+        <path d={linePath} fill="none" stroke={`url(#${uid}l)`} strokeWidth="2" strokeLinecap="round"/>
+        {ticks.map(t => (
+          <g key={t}>
+            <line x1={sx(t)} y1={H} x2={sx(t)} y2={H+5} stroke={T.border2} strokeWidth="1"/>
+            <text x={sx(t)} y={H+10} textAnchor="middle" fontSize="7" fill={T.textFaint}>{t}%</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function ImgFade({ src, style, ...props }) {
+  const [loaded, setLoaded] = useState(false);
+  return <img src={src} loading="eager" decoding="async" onLoad={()=>setLoaded(true)} style={{...style, opacity:loaded?1:0, transition:"opacity 0.3s ease"}} {...props}/>;
+}
+
 function CreativeCard({ cr, rank, goals, onClick, isWinner }) {
   const T = useT();
   const roasOk=cr.roas>=goals.roas, cpaOk=cr.cpa<=goals.cpa||cr.cpa===0, ctrOk=cr.ctr>=goals.ctr;
   const hookColor = cr.hookRate>=30?"#4ade80":cr.hookRate>=15?"#fbbf24":"#f87171";
   const isVideo = cr.type === "VIDEO";
   return (
-    <div onClick={onClick} style={{background:T.bg1,border:`1px solid ${isWinner?"#e8572a66":T.border}`,borderRadius:14,overflow:"hidden",cursor:"pointer",transition:"transform 0.15s,border 0.15s"}}
-      onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.border=`1px solid #e8572a44`;}}
-      onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.border=`1px solid ${isWinner?"#e8572a66":T.border}`;}}>
-      <div style={{height:90,background:cr.thumbnailUrl?`url(${cr.thumbnailUrl}) center/cover`:`linear-gradient(135deg,#e8572a22,#e8572a08)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,borderBottom:`1px solid ${T.border}`,position:"relative"}}>
-        {!cr.thumbnailUrl && <span>{cr.thumb}</span>}
-        <div style={{position:"absolute",top:7,left:7,display:"flex",gap:4}}>
-          <span style={{background:"rgba(0,0,0,0.7)",borderRadius:5,padding:"2px 7px",fontSize:10,fontWeight:700,color:"#fff"}}>#{rank}</span>
-          {isWinner && <span style={{background:"#e8572a",borderRadius:5,padding:"2px 7px",fontSize:10,fontWeight:700,color:"#fff"}}>★ TOP</span>}
+    <div onClick={onClick} style={{background:T.bg1,border:`1px solid ${isWinner?"#e8572a66":T.border}`,borderRadius:14,overflow:"hidden",cursor:"pointer",transition:"transform 0.15s,box-shadow 0.15s,border-color 0.15s"}}
+      onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 28px rgba(0,0,0,0.28)";e.currentTarget.style.borderColor="#e8572a55";}}
+      onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";e.currentTarget.style.borderColor=isWinner?"#e8572a66":T.border;}}>
+      {/* Thumbnail — placeholder siempre visible, imagen encima via CSS background-image.
+          CSS background-image no tiene restricciones CORS y carga cualquier URL válida. */}
+      <div style={{height:168, position:"relative", overflow:"hidden", borderBottom:`1px solid ${T.border}`}}>
+        {/* Placeholder siempre visible como base */}
+        <div style={{position:"absolute",inset:0,background:`linear-gradient(145deg,${cr.color||"#e8572a"}1a 0%,${T.bg2} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8}}>
+          <span style={{fontSize:44,lineHeight:1}}>{cr.thumb||(isVideo?"🎬":"📷")}</span>
+          <span style={{fontSize:9,color:T.textFaint,textTransform:"uppercase",letterSpacing:"0.12em",fontWeight:600}}>{isVideo?"Video":"Imagen"}</span>
         </div>
-        <div style={{position:"absolute",top:7,right:7}}>
-          <span style={{background:isVideo?"rgba(79,70,229,0.85)":"rgba(22,101,52,0.85)",borderRadius:5,padding:"2px 7px",fontSize:9,fontWeight:700,color:"#fff"}}>{isVideo?"🎬 VIDEO":"📷 IMG"}</span>
+        {/* Imagen encima del placeholder via CSS (sin restricciones CORS, fallback automático si falla) */}
+        {cr.thumbnailUrl && (
+          <div style={{position:"absolute",inset:0,backgroundImage:`url("${cr.thumbnailUrl}")`,backgroundSize:"cover",backgroundPosition:"center top"}}/>
+        )}
+        <div style={{position:"absolute",top:8,left:8,display:"flex",gap:4}}>
+          <span style={{background:"rgba(0,0,0,0.72)",backdropFilter:"blur(6px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fff"}}>#{rank}</span>
+          {isWinner && <span style={{background:"#e8572a",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fff"}}>★ TOP</span>}
+        </div>
+        <div style={{position:"absolute",top:8,right:8}}>
+          <span style={{background:isVideo?"rgba(79,70,229,0.82)":"rgba(22,101,52,0.82)",backdropFilter:"blur(6px)",borderRadius:5,padding:"2px 8px",fontSize:9,fontWeight:700,color:"#fff"}}>{isVideo?"🎬 VIDEO":"📷 IMG"}</span>
         </div>
         {cr.status && cr.status !== "ACTIVE" && (
-          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.6)",padding:"2px 7px",fontSize:9,color:"#fbbf24",textAlign:"center",fontWeight:600}}>PAUSADO</div>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.72)",backdropFilter:"blur(4px)",padding:"4px 8px",fontSize:9,color:"#fbbf24",textAlign:"center",fontWeight:700,letterSpacing:"0.06em"}}>⏸ PAUSADO</div>
         )}
       </div>
       <div style={{padding:"11px 13px"}}>
         <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:2,lineHeight:1.3,height:32,overflow:"hidden"}}>{cr.name}</div>
         <div style={{fontSize:10,color:T.textDim,marginBottom:8,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{cr.campaign||"—"}</div>
         {isVideo && (
-          <div style={{marginBottom:8}}>
+          <div style={{marginBottom:6}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
               <span style={{fontSize:9,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.06em"}}>Hook Rate</span>
               <span style={{fontSize:11,fontWeight:700,fontFamily:"monospace",color:hookColor}}>{cr.hookRate.toFixed(1)}%</span>
             </div>
-            <div style={{height:5,background:T.border,borderRadius:3}}>
+            <div style={{height:4,background:T.border,borderRadius:3,marginBottom:8}}>
               <div style={{height:"100%",width:`${Math.min(100,(cr.hookRate/60)*100)}%`,background:hookColor,borderRadius:3}}/>
             </div>
-            {cr.retention50 > 0 && (
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
-                <span style={{fontSize:9,color:T.textDim}}>Ret. 50%</span>
-                <span style={{fontSize:9,fontFamily:"monospace",color:"#a78bfa"}}>{cr.retention50.toFixed(0)}%</span>
-                <span style={{fontSize:9,color:T.textDim}}>Ret. 100%</span>
-                <span style={{fontSize:9,fontFamily:"monospace",color:"#4ade80"}}>{cr.retention100.toFixed(0)}%</span>
-              </div>
-            )}
+            <RetentionBar cr={cr}/>
           </div>
         )}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:8}}>
-          {[{l:"ROAS",v:fN(cr.roas,"x"),ok:roasOk},{l:"CPA",v:cr.cpa>0?fN(cr.cpa,"$"):"—",ok:cpaOk},{l:"CTR",v:fN(cr.ctr,"%"),ok:ctrOk}].map(({l,v,ok})=>(
-            <div key={l} style={{background:ok?T.ok.bg:T.bad.bg,border:`1px solid ${ok?T.ok.border:T.bad.border}`,borderRadius:5,padding:"4px 5px",textAlign:"center"}}>
-              <div style={{fontSize:8,color:ok?T.ok.text:T.bad.text,textTransform:"uppercase"}}>{l}</div>
-              <div style={{fontSize:11,fontWeight:700,fontFamily:"monospace",color:ok?T.ok.text:T.bad.text}}>{v}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:3,marginBottom:8}}>
+          {[
+            {l:"ROAS", v:fN(cr.roas,"x"),                      ok:roasOk, bad:!roasOk},
+            {l:"CPA",  v:cr.cpa>0?fN(cr.cpa,"$"):"—",          ok:cpaOk,  bad:!cpaOk},
+            {l:"CTR",  v:fN(cr.ctr,"%"),                        ok:ctrOk,  bad:!ctrOk},
+            {l:"Compras", v:cr.conversions>0?cr.conversions:"—", ok:cr.conversions>0, bad:cr.conversions===0},
+          ].map(({l,v,ok,bad})=>(
+            <div key={l} style={{background:ok?T.ok.bg:bad?T.bad.bg:T.bg2,border:`1px solid ${ok?T.ok.border:bad?T.bad.border:T.border}`,borderRadius:5,padding:"4px 3px",textAlign:"center"}}>
+              <div style={{fontSize:7,color:ok?T.ok.text:bad?T.bad.text:T.textDim,textTransform:"uppercase",letterSpacing:"0.04em"}}>{l}</div>
+              <div style={{fontSize:11,fontWeight:700,fontFamily:"monospace",color:ok?T.ok.text:bad?T.bad.text:T.textMuted}}>{v}</div>
             </div>
           ))}
         </div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.textDim}}>
           <span>${cr.spend.toLocaleString()}</span>
-          <span>{(cr.alcance/1000).toFixed(0)}k alc.</span>
+          <span>{cr.impressions>=1000?`${(cr.impressions/1000).toFixed(0)}k imp`:cr.impressions+" imp"}</span>
           <span style={{color:cr.frecuencia>2.5?"#f87171":T.textDim}}>f {cr.frecuencia.toFixed(1)}x</span>
         </div>
       </div>
@@ -529,7 +632,7 @@ function CreativeCard({ cr, rank, goals, onClick, isWinner }) {
   );
 }
 
-function CreativeDetail({ cr, goals, onClose }) {
+function CreativeDetail({ cr, goals, onClose, daily }) {
   const T = useT();
   if (!cr) return null;
   const roasOk=cr.roas>=goals.roas, cpaOk=cr.cpa<=goals.cpa||cr.cpa===0, ctrOk=cr.ctr>=goals.ctr;
@@ -566,21 +669,41 @@ function CreativeDetail({ cr, goals, onClose }) {
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:250,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:T.bg1,border:`1px solid ${T.border2}`,borderRadius:18,width:"100%",maxWidth:860,maxHeight:"92vh",overflow:"auto"}}>
-        {/* Header */}
-        <div style={{display:"flex",alignItems:"flex-start",gap:14,padding:"18px 22px 14px",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{width:56,height:56,borderRadius:10,overflow:"hidden",flexShrink:0,background:T.bg,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>
-            {cr.thumbnailUrl ? <img src={cr.thumbnailUrl} style={{width:"100%",height:"100%",objectFit:"cover"}}/> : cr.thumb}
-          </div>
-          <div style={{flex:1}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
-              <span style={{fontSize:15,fontWeight:700,color:T.text}}>{cr.name}</span>
-              {cr.type==="VIDEO" && <span style={{background:"#4f46e522",border:"1px solid #4f46e544",borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:700,color:"#818cf8"}}>🎬 VIDEO</span>}
-              {cr.status==="ACTIVE" && <span style={{background:"#16a34a22",border:"1px solid #16a34a44",borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:700,color:"#4ade80"}}>ACTIVO</span>}
+        {/* Header con thumbnail grande */}
+        {cr.thumbnailUrl && (
+          <div style={{height:220, position:"relative", overflow:"hidden", borderBottom:`1px solid ${T.border}`, background:`linear-gradient(145deg,${cr.color||"#e8572a"}33,${T.bg2})`}}>
+            <div style={{position:"absolute",inset:0,backgroundImage:`url("${cr.thumbnailUrl}")`,backgroundSize:"cover",backgroundPosition:"center top"}}/>
+            <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.82) 100%)"}}/>
+            <div style={{position:"absolute",bottom:14,left:18,right:48}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                {cr.type==="VIDEO" && <span style={{background:"rgba(79,70,229,0.85)",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fff"}}>🎬 VIDEO</span>}
+                {cr.status==="ACTIVE"
+                  ? <span style={{background:"rgba(22,101,52,0.85)",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#4ade80"}}>● ACTIVO</span>
+                  : <span style={{background:"rgba(0,0,0,0.75)",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fbbf24"}}>⏸ PAUSADO</span>
+                }
+              </div>
+              <div style={{fontSize:15,fontWeight:700,color:"#fff",textShadow:"0 1px 6px rgba(0,0,0,0.8)",lineHeight:1.3}}>{cr.name}</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.65)",marginTop:3}}>{cr.campaign||"—"}</div>
             </div>
-            <div style={{fontSize:12,color:T.textDim}}>{cr.campaign||"—"}</div>
+            <button onClick={onClose} style={{position:"absolute",top:12,right:14,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(6px)",border:"1px solid rgba(255,255,255,0.15)",color:"#fff",cursor:"pointer",fontSize:18,lineHeight:1,width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
           </div>
-          <button onClick={onClose} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button>
-        </div>
+        )}
+        {!cr.thumbnailUrl && (
+          <div style={{display:"flex",alignItems:"flex-start",gap:14,padding:"18px 22px 14px",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{width:56,height:56,borderRadius:10,overflow:"hidden",flexShrink:0,background:T.bg,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>
+              {cr.thumb}
+            </div>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                <span style={{fontSize:15,fontWeight:700,color:T.text}}>{cr.name}</span>
+                {cr.type==="VIDEO" && <span style={{background:"#4f46e522",border:"1px solid #4f46e544",borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:700,color:"#818cf8"}}>🎬 VIDEO</span>}
+                {cr.status==="ACTIVE" && <span style={{background:"#16a34a22",border:"1px solid #16a34a44",borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:700,color:"#4ade80"}}>ACTIVO</span>}
+              </div>
+              <div style={{fontSize:12,color:T.textDim}}>{cr.campaign||"—"}</div>
+            </div>
+            <button onClick={onClose} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:24,lineHeight:1}}>×</button>
+          </div>
+        )}
 
         <div style={{display:"grid",gridTemplateColumns:"1fr 260px",gap:0}}>
           {/* Left: all metrics */}
@@ -624,6 +747,13 @@ function CreativeDetail({ cr, goals, onClose }) {
           </div>
         </div>
 
+        {/* Línea de tiempo — ancho completo, para todo tipo de creativo */}
+        {daily?.length > 0 && (
+          <div style={{margin:"0 22px 20px"}}>
+            <CreativeTimeline daily={daily}/>
+          </div>
+        )}
+
         {/* Recommendation */}
         <div style={{margin:"0 22px 20px",background:"#e8572a0d",border:`1px solid #e8572a33`,borderRadius:10,padding:"13px 16px"}}>
           <div style={{fontSize:10,color:"#e8572a",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>Recomendación</div>
@@ -634,32 +764,147 @@ function CreativeDetail({ cr, goals, onClose }) {
   );
 }
 
+// ─── CREATIVE TIMELINE ───────────────────────────────────────────────────────
+const TIMELINE_METRICS = [
+  { key:"roas",        label:"ROAS",       color:"#60a5fa", fmt: v=>`${v.toFixed(2)}x` },
+  { key:"spend",       label:"Gasto $",    color:"#f87171", fmt: v=>`$${v.toLocaleString("es-AR",{maximumFractionDigits:0})}` },
+  { key:"revenue",     label:"Revenue $",  color:"#4ade80", fmt: v=>`$${v.toLocaleString("es-AR",{maximumFractionDigits:0})}` },
+  { key:"conversions", label:"Compras",    color:"#a78bfa", fmt: v=>String(Math.round(v)) },
+  { key:"ctr",         label:"CTR %",      color:"#fbbf24", fmt: v=>`${v.toFixed(2)}%` },
+  { key:"cpm",         label:"CPM $",      color:"#f59e0b", fmt: v=>`$${v.toFixed(2)}` },
+  { key:"cpa",         label:"CPA $",      color:"#e879f9", fmt: v=>`$${v.toFixed(2)}` },
+  { key:"impressions", label:"Impresiones",color:"#94a3b8", fmt: v=>v>=1000?`${(v/1000).toFixed(0)}k`:String(v) },
+];
+
+function CreativeTimeline({ daily }) {
+  const T = useT();
+  const [metric, setMetric] = useState("roas");
+  if (!daily?.length) return null;
+  const m = TIMELINE_METRICS.find(x=>x.key===metric) || TIMELINE_METRICS[0];
+
+  const fmt = date => {
+    const d = new Date(date+"T00:00:00");
+    return `${d.getDate()}/${d.getMonth()+1}`;
+  };
+
+  const minVal = Math.min(...daily.map(d=>d[metric]||0));
+  const maxVal = Math.max(...daily.map(d=>d[metric]||0));
+  const pad = (maxVal-minVal)*0.15 || 1;
+
+  return (
+    <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"16px 18px",marginBottom:18}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+        <span style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Evolución del período</span>
+        <div style={{marginLeft:"auto",display:"flex",gap:4,flexWrap:"wrap"}}>
+          {TIMELINE_METRICS.map(mx=>(
+            <button key={mx.key} onClick={()=>setMetric(mx.key)}
+              style={{padding:"3px 9px",borderRadius:5,border:`1px solid`,cursor:"pointer",fontSize:10,fontWeight:metric===mx.key?700:400,
+                background:metric===mx.key?`${mx.color}22`:"none",
+                borderColor:metric===mx.key?mx.color:T.border2,
+                color:metric===mx.key?mx.color:T.textDim}}>
+              {mx.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={180}>
+        <LineChart data={daily} margin={{top:4,right:4,bottom:0,left:0}}>
+          <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false}/>
+          <XAxis dataKey="day" tickFormatter={fmt} tick={{fontSize:9,fill:T.textDim}} axisLine={false} tickLine={false} interval="preserveStartEnd"/>
+          <YAxis domain={[Math.max(0,minVal-pad), maxVal+pad]} tick={{fontSize:9,fill:T.textDim}} axisLine={false} tickLine={false} tickFormatter={m.fmt} width={52}/>
+          <Tooltip
+            contentStyle={{background:T.bg1,border:`1px solid ${T.border2}`,borderRadius:8,fontSize:11}}
+            labelStyle={{color:T.textMuted,fontSize:10}}
+            labelFormatter={v=>`Día ${fmt(v)}`}
+            formatter={(v)=>[m.fmt(v), m.label]}
+          />
+          <Line type="monotone" dataKey={metric} stroke={m.color} strokeWidth={2} dot={false} activeDot={{r:4,fill:m.color}}/>
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function CreativosModule({ account, goals }) {
   const T = useT();
   const creatives = account.creatives?.length ? account.creatives : (CREATIVES[account.id] || []);
   const isLive = !!account.creatives?.length;
-  const [tf, setTf] = useState("ALL");
-  const [sb, setSb] = useState("roas");
+  const ak = account?.id || 'x';
+
+  const [tf, setTf] = useState(() => { try { return localStorage.getItem(`cr_tf_${ak}`)||"ALL"; } catch { return "ALL"; } });
+  const [sb, setSb] = useState(() => { try { return localStorage.getItem(`cr_sb_${ak}`)||"roas"; } catch { return "roas"; } });
   const [sel, setSel] = useState(null);
 
+  // Normalizar nombre para comparación robusta (case-insensitive + trim)
+  const norm = s => (s||"").trim().toLowerCase();
+
+  const campaignList = useMemo(() => {
+    return [...new Set(creatives.map(c => c.campaign).filter(Boolean))];
+  }, [creatives]);
+
+  const [selectedCampaigns, setSelectedCampaigns] = useState(() => {
+    try { const s = localStorage.getItem(`cr_sel_${ak}`); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+
+  // Cuando cambian los datos, descartar selecciones que ya no existen
+  useEffect(() => {
+    if (!campaignList.length) return;
+    const validNorms = campaignList.map(norm);
+    setSelectedCampaigns(prev => {
+      const cleaned = prev.filter(n => validNorms.includes(norm(n)));
+      return cleaned.length !== prev.length ? cleaned : prev;
+    });
+  }, [campaignList.join("|")]);
+
+  useEffect(() => { try { localStorage.setItem(`cr_tf_${ak}`,  tf);  } catch {} }, [tf,  ak]);
+  useEffect(() => { try { localStorage.setItem(`cr_sb_${ak}`,  sb);  } catch {} }, [sb,  ak]);
+  useEffect(() => { try { localStorage.setItem(`cr_sel_${ak}`, JSON.stringify(selectedCampaigns)); } catch {} }, [selectedCampaigns, ak]);
+
+  const toggleCampaign = (name) => {
+    setSelectedCampaigns(prev =>
+      prev.some(n => norm(n) === norm(name))
+        ? prev.filter(n => norm(n) !== norm(name))
+        : [...prev, name]
+    );
+  };
+
+  const toggleAll = () => {
+    setSelectedCampaigns(prev =>
+      prev.length === campaignList.length ? [] : [...campaignList]
+    );
+  };
+
+  const hasSelection = selectedCampaigns.length > 0;
+
+  const filteredCreatives = useMemo(() => {
+    if (!hasSelection) return [];
+    const selectedNorms = selectedCampaigns.map(norm);
+    return creatives.filter(c => selectedNorms.includes(norm(c.campaign)));
+  }, [creatives, selectedCampaigns, hasSelection]);
+
   const sorted = useMemo(() => {
-    let d = creatives;
+    let d = filteredCreatives;
     if (tf !== "ALL") d = d.filter(c => c.type === tf);
     return [...d].sort((a, b) => sb==="cpa" ? (a[sb]||0)-(b[sb]||0) : (b[sb]||0)-(a[sb]||0));
-  }, [creatives, tf, sb]);
+  }, [filteredCreatives, tf, sb]);
 
-  const videos = creatives.filter(c => c.type === "VIDEO");
-  const avgHook = videos.length ? (videos.reduce((s,c) => s+c.hookRate, 0) / videos.length) : 0;
-  const avgRoas = creatives.length ? (creatives.reduce((s,c) => s+c.roas, 0) / creatives.length) : 0;
-  const avgCtr  = creatives.length ? (creatives.reduce((s,c) => s+c.ctr,  0) / creatives.length) : 0;
-  const totalSpend = creatives.reduce((s,c) => s+c.spend, 0);
+  const videos = filteredCreatives.filter(c => c.type === "VIDEO");
+  const avgHook    = videos.length ? (videos.reduce((s,c) => s+c.hookRate, 0) / videos.length) : 0;
+  const totalSpend   = filteredCreatives.reduce((s,c) => s+(c.spend   ||0), 0);
+  const totalRevenue = filteredCreatives.reduce((s,c) => s+(c.revenue  ||0), 0);
+  const totalClicks  = filteredCreatives.reduce((s,c) => s+(c.clics    ||0), 0);
+  const totalImpr    = filteredCreatives.reduce((s,c) => s+(c.impressions||0), 0);
+  // ROAS correcto: revenue total / spend total (no promedio de ROAS individuales)
+  const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  // CTR correcto: clics totales / impresiones totales
+  const avgCtr  = totalImpr  > 0 ? (totalClicks / totalImpr) * 100 : 0;
 
   if (!creatives.length) return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,color:T.textFaint,gap:12,textAlign:"center"}}>
       <div style={{fontSize:32}}>🎨</div>
       <div style={{fontSize:14,fontWeight:600,color:T.textSub}}>Sin datos de creativos</div>
       <div style={{fontSize:12,color:T.textDim,maxWidth:340}}>
-        {account.meta_token ? "Actualizá los datos con el botón \"● Meta conectada\" en la barra superior." : "Conectá la Meta API en Ajustes → editar cuenta para ver métricas reales de creativos."}
+        {account.meta_token ? "Actualizá los datos con el botón \"↻ Sincronización\" en la barra superior." : "Conectá la Meta API en Ajustes → editar cuenta para ver métricas reales de creativos."}
       </div>
     </div>
   );
@@ -668,46 +913,86 @@ function CreativosModule({ account, goals }) {
     <div>
       {!isLive && <div style={{background:"#f59e0b11",border:"1px solid #f59e0b33",borderRadius:8,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#f59e0b"}}>Mostrando datos de demo — conectá la Meta API para ver métricas reales.</div>}
 
-      {/* KPI row */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:18}}>
-        {[
-          {l:"Total creativos", v:creatives.length,            c:T.text},
-          {l:"Videos",          v:videos.length,               c:"#818cf8"},
-          {l:"Imágenes",        v:creatives.length-videos.length, c:"#4ade80"},
-          {l:"Hook Rate prom.", v:`${avgHook.toFixed(1)}%`,    c:avgHook>=30?"#4ade80":avgHook>=15?"#fbbf24":"#f87171"},
-          {l:"CTR promedio",    v:`${avgCtr.toFixed(2)}%`,     c:T.textSub},
-          {l:"ROAS promedio",   v:`${avgRoas.toFixed(2)}x`,    c:avgRoas>=goals.roas?"#4ade80":"#f87171"},
-          {l:"Gasto total",     v:`$${totalSpend.toLocaleString()}`, c:T.textSub},
-        ].map(({l,v,c})=>(
-          <div key={l} style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-            <div style={{fontSize:9,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>{l}</div>
-            <div style={{fontSize:19,fontWeight:700,fontFamily:"monospace",color:c}}>{v}</div>
+      {/* Campaign selector */}
+      <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+          <span style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Seleccioná campañas para ver creativos</span>
+          <button onClick={toggleAll} style={{marginLeft:"auto",padding:"3px 10px",borderRadius:5,border:`1px solid ${T.border2}`,background:"none",color:T.textDim,fontSize:10,cursor:"pointer"}}>
+            {selectedCampaigns.length === campaignList.length ? "Deseleccionar todo" : "Seleccionar todo"}
+          </button>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {campaignList.map(name => {
+            const checked = selectedCampaigns.some(n => norm(n) === norm(name));
+            const count = creatives.filter(c => norm(c.campaign) === norm(name)).length;
+            return (
+              <label key={name} onClick={()=>toggleCampaign(name)} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 12px",borderRadius:7,border:`1px solid ${checked?"#e8572a":T.border2}`,background:checked?"#e8572a18":"none",cursor:"pointer",userSelect:"none"}}>
+                <div style={{width:14,height:14,borderRadius:3,border:`2px solid ${checked?"#e8572a":T.border2}`,background:checked?"#e8572a":"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {checked && <span style={{color:"#fff",fontSize:9,lineHeight:1,fontWeight:900}}>✓</span>}
+                </div>
+                <span style={{fontSize:12,color:checked?T.text:T.textMuted,fontWeight:checked?600:400}}>{name}</span>
+                <span style={{fontSize:10,color:checked?"#e8572a99":T.textFaint,fontWeight:500}}>({count})</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Empty state when no campaign selected */}
+      {!hasSelection && (
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,color:T.textFaint,gap:10,textAlign:"center",background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10}}>
+          <div style={{fontSize:32}}>👆</div>
+          <div style={{fontSize:14,fontWeight:600,color:T.textSub}}>Seleccioná al menos una campaña</div>
+          <div style={{fontSize:12,color:T.textDim}}>Los creativos se mostrarán según las campañas que elijas arriba.</div>
+        </div>
+      )}
+
+      {hasSelection && (
+        <>
+          {/* KPI row */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:18}}>
+            {[
+              {l:"Total creativos", v:filteredCreatives.length,            c:T.text},
+              {l:"Videos",          v:videos.length,               c:"#818cf8"},
+              {l:"Imágenes",        v:filteredCreatives.length-videos.length, c:"#4ade80"},
+              {l:"Compras totales", v:filteredCreatives.reduce((s,c)=>s+(c.conversions||0),0), c:"#a78bfa"},
+              {l:"Hook Rate prom.", v:`${avgHook.toFixed(1)}%`,    c:avgHook>=30?"#4ade80":avgHook>=15?"#fbbf24":"#f87171"},
+              {l:"CTR",            v:`${avgCtr.toFixed(2)}%`,      c:T.textSub},
+              {l:"ROAS",           v:`${avgRoas.toFixed(2)}x`,     c:avgRoas>=goals.roas?"#4ade80":"#f87171"},
+              {l:"Revenue",        v:`$${totalRevenue.toLocaleString()}`, c:"#4ade80"},
+              {l:"Gasto total",    v:`$${totalSpend.toLocaleString()}`,   c:T.textSub},
+            ].map(({l,v,c})=>(
+              <div key={l} style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:9,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>{l}</div>
+                <div style={{fontSize:19,fontWeight:700,fontFamily:"monospace",color:c}}>{v}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Filters */}
-      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-        <div style={{display:"flex",gap:5}}>
-          {["ALL","VIDEO","IMAGE"].map(t=>(
-            <button key={t} onClick={()=>setTf(t)} style={{padding:"5px 12px",borderRadius:6,border:"1px solid",cursor:"pointer",fontSize:11,background:tf===t?"#e8572a20":"none",borderColor:tf===t?"#e8572a":T.border2,color:tf===t?"#e8572a":T.textDim}}>
-              {t==="ALL"?"Todos":t==="VIDEO"?"🎬 Video":"📷 Imagen"}
-            </button>
-          ))}
-        </div>
-        <div style={{marginLeft:"auto",display:"flex",gap:5,alignItems:"center"}}>
-          <span style={{fontSize:10,color:T.textDim}}>Ordenar:</span>
-          {[["roas","ROAS"],["hookRate","Hook"],["ctr","CTR"],["cpa","CPA"],["spend","Gasto"],["frecuencia","Frec."]].map(([k,l])=>(
-            <button key={k} onClick={()=>setSb(k)} style={{padding:"3px 9px",borderRadius:5,border:"1px solid",cursor:"pointer",fontSize:10,background:sb===k?"#3b82f622":"none",borderColor:sb===k?"#60a5fa":T.border2,color:sb===k?"#60a5fa":T.textDim,fontWeight:sb===k?700:400}}>{l}</button>
-          ))}
-        </div>
-      </div>
+          {/* Filters */}
+          <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+            <div style={{display:"flex",gap:5}}>
+              {["ALL","VIDEO","IMAGE"].map(t=>(
+                <button key={t} onClick={()=>setTf(t)} style={{padding:"5px 12px",borderRadius:6,border:"1px solid",cursor:"pointer",fontSize:11,background:tf===t?"#e8572a20":"none",borderColor:tf===t?"#e8572a":T.border2,color:tf===t?"#e8572a":T.textDim}}>
+                  {t==="ALL"?"Todos":t==="VIDEO"?"🎬 Video":"📷 Imagen"}
+                </button>
+              ))}
+            </div>
+            <div style={{marginLeft:"auto",display:"flex",gap:5,alignItems:"center"}}>
+              <span style={{fontSize:10,color:T.textDim}}>Ordenar:</span>
+              {[["roas","ROAS"],["hookRate","Hook"],["ctr","CTR"],["cpa","CPA"],["spend","Gasto"],["frecuencia","Frec."]].map(([k,l])=>(
+                <button key={k} onClick={()=>setSb(k)} style={{padding:"3px 9px",borderRadius:5,border:"1px solid",cursor:"pointer",fontSize:10,background:sb===k?"#3b82f622":"none",borderColor:sb===k?"#60a5fa":T.border2,color:sb===k?"#60a5fa":T.textDim,fontWeight:sb===k?700:400}}>{l}</button>
+              ))}
+            </div>
+          </div>
 
-      {/* Grid */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:13}}>
-        {sorted.map((cr,i) => <CreativeCard key={cr.id} cr={cr} rank={i+1} goals={goals} isWinner={i===0} onClick={()=>setSel(cr)}/>)}
-      </div>
-      {sel && <CreativeDetail cr={sel} goals={goals} onClose={()=>setSel(null)}/>}
+          {/* Grid */}
+          <div className="creatives-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:13}}>
+            {sorted.map((cr,i) => <CreativeCard key={cr.id} cr={cr} rank={i+1} goals={goals} isWinner={i===0} onClick={()=>setSel(cr)}/>)}
+          </div>
+          {sel && <CreativeDetail cr={sel} goals={goals} onClose={()=>setSel(null)} daily={account.daily||[]}/>}
+        </>
+      )}
     </div>
   );
 }
@@ -824,7 +1109,6 @@ function TasksModule({ currentUser, userAccounts, allUsers, tasks, setTasks, act
   const T = useT();
   const [showModal, setShowModal] = useState(false);
   const [viewFilter, setViewFilter] = useState("all");
-  const [accFilter, setAccFilter] = useState("all");
   const isClient = currentUser.role==="client";
   const canEdit  = currentUser.role==="master"||currentUser.role==="team";
 
@@ -857,21 +1141,26 @@ function TasksModule({ currentUser, userAccounts, allUsers, tasks, setTasks, act
     toast("Tarea eliminada","warn");
   }
 
+  // Base: tareas de la marca activa (las sin marca asignada se muestran en todas)
+  const brandTasks = useMemo(()=>{
+    if (!activeProjectId) return tasks;
+    return tasks.filter(x=>{ const aid=x.account_id||x.account; return !aid||aid===activeProjectId; });
+  },[tasks,activeProjectId]);
+
   const visible = useMemo(()=>{
-    let t=tasks;
+    let t=brandTasks;
     if (isClient) t=t.filter(x=>x.type==="client"&&userAccounts.some(a=>a.id===(x.account_id||x.account)));
     if (viewFilter==="team")   t=t.filter(x=>x.type==="team");
     if (viewFilter==="client") t=t.filter(x=>x.type==="client");
     if (viewFilter==="mine")   t=t.filter(x=>(x.assignee_id||x.assignee)===currentUser.id);
-    if (accFilter!=="all")     t=t.filter(x=>(x.account_id||x.account)===accFilter);
     return t;
-  },[tasks,viewFilter,accFilter,isClient,currentUser,userAccounts]);
+  },[brandTasks,viewFilter,isClient,currentUser,userAccounts]);
 
   const stats={
-    todo:tasks.filter(t=>t.status==="todo").length,
-    inprogress:tasks.filter(t=>t.status==="inprogress").length,
-    done:tasks.filter(t=>t.status==="done").length,
-    overdue:tasks.filter(t=>t.dueDate&&new Date(t.dueDate)<new Date()&&t.status!=="done").length,
+    todo:brandTasks.filter(t=>t.status==="todo").length,
+    inprogress:brandTasks.filter(t=>t.status==="inprogress").length,
+    done:brandTasks.filter(t=>t.status==="done").length,
+    overdue:brandTasks.filter(t=>t.dueDate&&new Date(t.dueDate)<new Date()&&t.status!=="done").length,
   };
 
   return (
@@ -892,10 +1181,6 @@ function TasksModule({ currentUser, userAccounts, allUsers, tasks, setTasks, act
             ))}
           </div>
         )}
-        <select value={accFilter} onChange={e=>setAccFilter(e.target.value)} style={{background:T.bg,border:`1px solid ${T.border2}`,borderRadius:6,color:T.textSub,padding:"5px 10px",fontSize:11,cursor:"pointer",outline:"none"}}>
-          <option value="all">Todas las cuentas</option>
-          {userAccounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
         <button onClick={()=>setShowModal(true)} style={{marginLeft:"auto",padding:"7px 16px",background:"#e8572a",border:"none",borderRadius:7,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nueva tarea</button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14}} className="kanban-grid">
@@ -925,16 +1210,34 @@ function TasksModule({ currentUser, userAccounts, allUsers, tasks, setTasks, act
 // ─── ACCOUNT MODAL ───────────────────────────────────────────────────────────
 function AccountModal({account, onSave, onClose}) {
   const T = useT();
-  const [name, setName] = useState(account?.name||"");
-  const [clientName, setClientName] = useState(account?.client_name||"");
-  const [clientEmail, setClientEmail] = useState(account?.client_email||"");
-  const [logoUrl, setLogoUrl] = useState(account?.logo_url||"");
-  const [logoFile, setLogoFile] = useState(null);
-  const [logoPreview, setLogoPreview] = useState(account?.logo_url||"");
-  const [metaToken, setMetaToken] = useState(account?.meta_token||"");
-  const [metaAdAccId, setMetaAdAccId] = useState(account?.meta_ad_account_id||"");
+  const isNew = !account;
+  const dk = isNew ? 'acc_draft_new' : `acc_draft_${account.id}`;
+
+  const readDraft = (field, fallback) => {
+    if (!isNew) return fallback;
+    try { const d = localStorage.getItem(dk); return d ? (JSON.parse(d)[field] ?? fallback) : fallback; } catch { return fallback; }
+  };
+  const saveDraft = (patch) => {
+    try {
+      const prev = JSON.parse(localStorage.getItem(dk)||'{}');
+      localStorage.setItem(dk, JSON.stringify({...prev, ...patch}));
+    } catch {}
+  };
+  const clearDraft = () => { try { localStorage.removeItem(dk); } catch {} };
+
+  const [name,       setName]       = useState(() => readDraft('name',       account?.name||""));
+  const [clientName, setClientName] = useState(() => readDraft('clientName', account?.client_name||""));
+  const [clientEmail,setClientEmail]= useState(() => readDraft('clientEmail',account?.client_email||""));
+  const [logoUrl,    setLogoUrl]    = useState(account?.logo_url||"");
+  const [logoFile,   setLogoFile]   = useState(null);
+  const [logoPreview,setLogoPreview]= useState(account?.logo_url||"");
+  const [metaToken,  setMetaToken]  = useState(() => readDraft('metaToken',  account?.meta_token||""));
+  const [metaAdAccId,setMetaAdAccId]= useState(() => readDraft('metaAdAccId',account?.meta_ad_account_id||""));
   const [metaTestStatus, setMetaTestStatus] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  // Persiste borrador automáticamente mientras el usuario escribe
+  useEffect(() => { saveDraft({name, clientName, clientEmail, metaToken, metaAdAccId}); }, [name, clientName, clientEmail, metaToken, metaAdAccId]);
 
   async function testMetaConnection() {
     if (!metaToken.trim() || !metaAdAccId.trim()) return;
@@ -965,6 +1268,8 @@ function AccountModal({account, onSave, onClose}) {
     setSaving(true);
     let finalLogoUrl = logoUrl;
     if (logoFile && isSupabaseConfigured && supabase) {
+      // Refrescar sesión antes de subir para evitar token expirado
+      try { await supabase.auth.refreshSession(); } catch {}
       const ext = logoFile.name.split('.').pop();
       const path = `logos/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage.from("logos").upload(path, logoFile, {upsert:true});
@@ -973,12 +1278,13 @@ function AccountModal({account, onSave, onClose}) {
         finalLogoUrl = data.publicUrl;
       } else {
         toast("Error al subir imagen: " + upErr.message + ". Guardando localmente.", "warn");
-        finalLogoUrl = logoPreview; // fallback a base64
+        finalLogoUrl = logoPreview;
       }
     } else if (logoFile) {
       finalLogoUrl = logoPreview;
     }
     await onSave({ name: name.trim(), client_name: clientName.trim(), client_email: clientEmail.trim(), logo_url: finalLogoUrl, metaToken: metaToken.trim(), metaAdAccId: metaAdAccId.trim() });
+    clearDraft();
     setSaving(false);
   }
 
@@ -1620,7 +1926,7 @@ function DateRangePicker({ dateRange, onChange }) {
       </button>
       {open && <>
         <div style={{position:"fixed",inset:0,zIndex:998}} onClick={()=>setOpen(false)}/>
-        <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10,padding:8,zIndex:999,minWidth:210,boxShadow:"0 8px 32px rgba(0,0,0,0.35)"}}>
+        <div className="date-range-drop" style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10,padding:8,zIndex:999,minWidth:210,boxShadow:"0 8px 32px rgba(0,0,0,0.35)"}}>
           {DATE_PRESETS.map(p=>(
             <button key={p.id} style={btnStyle(dateRange.preset===p.id)} onClick={()=>selectPreset(p.id)}>{p.label}</button>
           ))}
@@ -1689,6 +1995,7 @@ const PDF_BLOCKS = [
   { id:"creativos",  label:"Top creativos",            desc:"Ranking por ROAS con hook rate" },
   { id:"campaigns",  label:"Tabla de campañas",        desc:"Performance por campaña activa" },
   { id:"reach",      label:"Alcance y frecuencia",     desc:"Impresiones, CPM, clics enlace" },
+  { id:"custom_summary", label:"Resumen personalizado", desc:"Texto libre editable para el reporte" },
 ];
 
 function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
@@ -1699,6 +2006,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   function setDateFrom(v) { onDateRangeChange?.({ preset:"custom", from:v, to:dateTo }); }
   function setDateTo(v)   { onDateRangeChange?.({ preset:"custom", from:dateFrom, to:v }); }
   const [note, setNote]         = useState("");
+  const [customSummary, setCustomSummary] = useState("");
   const [generating, setGenerating] = useState(false);
   const [preview, setPreview]   = useState(true);
 
@@ -1783,6 +2091,14 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
               Ganancia estimada: <b>${profit.toLocaleString()}</b> (ROI: {roi}%).
             </div>
             {note && <div style={{ marginTop:8, paddingTop:8, borderTop:"1px solid #fcd5c0", fontSize:11, color:"#555", fontStyle:"italic" }}><b style={{color:"#e8572a",fontStyle:"normal"}}>Nota: </b>{note}</div>}
+          </div>
+        )}
+
+        {/* Resumen personalizado */}
+        {sel.includes("custom_summary") && customSummary.trim() && (
+          <div style={{ background:"#fff8f5", border:"1px solid #fcd5c0", borderRadius:7, padding:"13px 15px", marginBottom:18 }}>
+            <div style={{ fontSize:10, fontWeight:700, color:"#e8572a", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Resumen Personalizado</div>
+            <div style={{ fontSize:12, color:"#333", lineHeight:1.75, whiteSpace:"pre-wrap" }}>{customSummary}</div>
           </div>
         )}
 
@@ -2025,6 +2341,13 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
             <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Nota para el cliente</div>
             <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Comentario adicional..." style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:11,minHeight:60,resize:"vertical",boxSizing:"border-box",outline:"none"}}/>
           </div>
+          {/* Custom summary */}
+          {sel.includes("custom_summary") && (
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Texto del resumen personalizado</div>
+              <textarea value={customSummary} onChange={e=>setCustomSummary(e.target.value)} placeholder="Escribí el contenido del resumen personalizado que aparecerá en el PDF..." style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:11,minHeight:100,resize:"vertical",boxSizing:"border-box",outline:"none"}}/>
+            </div>
+          )}
         </div>
         {/* Actions */}
         <div style={{padding:10,borderTop:`1px solid ${T.border}`,display:"flex",flexDirection:"column",gap:8}}>
@@ -2117,14 +2440,157 @@ function ClientPortal({account, tasks, currentUser, toast}) {
 // ─── NAVIGATION ──────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   {id:"dashboard", label:"Dashboard", icon:"📊"},
-  {id:"campaigns", label:"Campañas", icon:"📣"},
+  {id:"campaigns", label:"Campañas",  icon:"📣"},
   {id:"creatives", label:"Creativos", icon:"🎨"},
   {id:"tasks",     label:"Tareas",    icon:"✅"},
   {id:"report",    label:"Reporte",   icon:"📄"},
   {id:"settings",  label:"Ajustes",   icon:"⚙️"},
 ];
 
+// ─── OVERVIEW MODULE ─────────────────────────────────────────────────────────
+function OverviewModule({ accounts, tasks, onSelect }) {
+  const T = useT();
+
+  return (
+    <div className="page-pad" style={{padding:"28px 20px",maxWidth:900,margin:"0 auto"}}>
+      <div style={{marginBottom:22}}>
+        <div style={{fontSize:20,fontWeight:800,color:T.text,marginBottom:6}}>Seleccioná una cuenta</div>
+        <div style={{fontSize:13,color:T.textMuted}}>{accounts.length} cuenta{accounts.length!==1?"s":""} disponible{accounts.length!==1?"s":""} según tus accesos</div>
+      </div>
+
+      {/* Account cards */}
+      <div className="account-cards-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
+        {accounts.map(acc=>{
+          const cv  = acc.funnel?.conversion||{};
+          const cr  = acc.funnel?.creativos||{};
+          const g   = acc.goals||{roas:3,cpa:10,ctr:1.5};
+          const roas = cv.roas||0;
+          const cpa  = cv.costoCompra||0;
+          const ctr  = cr.ctrUnico||0;
+          const roasOk = roas>=g.roas;
+          const cpaOk  = cpa<=g.cpa||cpa===0;
+          const ctrOk  = ctr>=g.ctr;
+          const pendingTasks = tasks.filter(t=>t.status!=="done"&&(t.account_id||t.account)===acc.id).length;
+          const hasData = (cv.inversion||0)>0;
+
+          return (
+            <div key={acc.id} onClick={()=>onSelect(acc.id)}
+              style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",cursor:"pointer",transition:"transform 0.15s,border-color 0.15s"}}
+              onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.borderColor="#e8572a55";}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.borderColor=T.border;}}>
+
+              {/* Card header */}
+              <div style={{height:5,background:acc.color||"#e8572a"}}/>
+              <div style={{padding:"14px 16px 12px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
+                {acc.logo_url
+                  ? <img src={acc.logo_url} alt="logo" style={{width:36,height:36,objectFit:"contain",borderRadius:7,border:`1px solid ${T.border}`,flexShrink:0}}/>
+                  : <div style={{width:36,height:36,borderRadius:7,background:acc.color||"#e8572a",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:15,flexShrink:0}}>{acc.name?.[0]||"?"}</div>
+                }
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{acc.name}</div>
+                  {acc.client_name&&<div style={{fontSize:11,color:T.textMuted}}>{acc.client_name}</div>}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                  {acc.meta_token
+                    ? <span style={{fontSize:10,background:"#16a34a22",color:"#4ade80",border:"1px solid #16a34a44",borderRadius:10,padding:"1px 8px",fontWeight:600}}>Meta ●</span>
+                    : <span style={{fontSize:10,background:T.bg2,color:T.textFaint,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 8px"}}>Sin API</span>
+                  }
+                  {pendingTasks>0&&<span style={{fontSize:10,background:"#f59e0b22",color:"#f59e0b",border:"1px solid #f59e0b44",borderRadius:10,padding:"1px 8px",fontWeight:600}}>{pendingTasks} tarea{pendingTasks!==1?"s":""}</span>}
+                </div>
+              </div>
+
+              {/* KPIs */}
+              <div style={{padding:"12px 16px"}}>
+                {!hasData ? (
+                  <div style={{textAlign:"center",padding:"18px 0",color:T.textFaint,fontSize:12}}>Sin datos — conectá Meta API o seleccioná un período</div>
+                ) : (
+                  <>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                      {[
+                        {l:"ROAS",  v:`${roas.toFixed(1)}x`,  ok:roasOk},
+                        {l:"CPA",   v:cpa>0?`$${cpa.toFixed(0)}`:"—", ok:cpaOk},
+                        {l:"CTR",   v:`${ctr.toFixed(1)}%`,   ok:ctrOk},
+                      ].map(({l,v,ok})=>(
+                        <div key={l} style={{background:ok?T.ok.bg:T.bad.bg,border:`1px solid ${ok?T.ok.border:T.bad.border}`,borderRadius:7,padding:"7px 8px",textAlign:"center"}}>
+                          <div style={{fontSize:9,color:ok?T.ok.text:T.bad.text,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:3}}>{l}</div>
+                          <div style={{fontSize:14,fontWeight:700,fontFamily:"monospace",color:ok?T.ok.text:T.bad.text}}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.textMuted,paddingTop:8,borderTop:`1px solid ${T.border}`}}>
+                      <span>Inv. <b style={{color:T.textSub}}>${(cv.inversion||0).toLocaleString("es-AR",{maximumFractionDigits:0})}</b></span>
+                      <span>Rev. <b style={{color:"#4ade80"}}>${(cv.facturacion||0).toLocaleString("es-AR",{maximumFractionDigits:0})}</b></span>
+                      <span>Conv. <b style={{color:T.textSub}}>{cv.conversiones||0}</b></span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── META CACHE ───────────────────────────────────────────────────────────────
+const META_CACHE_TTL = 5 * 60 * 1000;
+function getMetaCache(accountId, from, to) {
+  try {
+    const raw = localStorage.getItem(`meta_cache_v10_${accountId}_${from}_${to}`);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > META_CACHE_TTL) return null;
+    return data;
+  } catch { return null; }
+}
+function setMetaCache(accountId, from, to, data) {
+  try {
+    localStorage.setItem(`meta_cache_v10_${accountId}_${from}_${to}`, JSON.stringify({ data, ts: Date.now() }));
+  } catch {}
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
+function DashboardPage({ account }) {
+  const T = useT();
+  if (!account) return <div style={{padding:40,textAlign:"center",color:T.textFaint,fontSize:14}}>Seleccioná una cuenta para continuar.</div>;
+  const f = account.funnel||{creativos:{},acciones:{},conversion:{}};
+  const g = account.goals||{roas:3,cpa:10,ctr:1.5,budget:1000};
+  const cr = f.creativos||{}; const ac = f.acciones||{}; const cv = f.conversion||{};
+  return (
+    <div className="page-pad" style={{padding:"20px 24px"}}>
+      <PhaseBlock color="#60a5fa" title="CREATIVOS"
+        metrics={[
+          {label:"Alcance",value:cr.alcance||0,type:"num"},
+          {label:"Impresiones",value:cr.impresiones||0,type:"num"},
+          {label:"CTR Único",value:cr.ctrUnico||0,type:"%",goal:g.ctr},
+          {label:"Clics en Enlace",value:cr.clicsEnlace||0,type:"num"},
+          {label:"CPM",value:cr.cpm||0,type:"$",inv:true},
+        ]}
+      />
+      <PhaseBlock color="#f59e0b" title="ACCIONES EN TIENDA"
+        metrics={[
+          {label:"Add to Cart",value:ac.addToCart||0,type:"num"},
+          {label:"Pagos Iniciados",value:ac.pagosIniciados||0,type:"num"},
+          {label:"Costo Pagos",value:ac.costoPagosIniciados||0,type:"$",inv:true},
+        ]}
+      />
+      <PhaseBlock color="#4ade80" title="CONVERSIÓN"
+        metrics={[
+          {label:"Inversión",value:cv.inversion||0,type:"$"},
+          {label:"Facturación",value:cv.facturacion||0,type:"$"},
+          {label:"Costo/Compra",value:cv.costoCompra||0,type:"$",inv:true,goal:g.cpa},
+          {label:"ROAS",value:cv.roas||0,type:"x",goal:g.roas},
+          {label:"Conversiones",value:cv.conversiones||0,type:"num"},
+        ]}
+      />
+      <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"16px 20px",marginTop:4}}>
+        <PerfChart daily={account.daily||[]} color={account.color||"#e8572a"}/>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const T = darkMode ? DARK : LIGHT;
@@ -2135,11 +2601,21 @@ export default function App() {
   const [allAccounts, setAllAccounts] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [tasks, setTasks] = useState([]);
-  const [activeProjectId, setActiveProjectId] = useState(null);
-  const [page, setPage] = useState("dashboard");
+  const [activeProjectId, setActiveProjectId] = useState(() => {
+    try { return localStorage.getItem("eb_active_project") || null; } catch { return null; }
+  });
+  const [page, setPage] = useState(() => {
+    try { return localStorage.getItem("eb_page") || "dashboard"; } catch { return "dashboard"; }
+  });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showPicker, setShowPicker] = useState(false);
-  const [dateRange, setDateRange] = useState(()=>({ preset:"last_30", ...getPresetRange("last_30") }));
+  const [dateRange, setDateRange] = useState(() => {
+    try {
+      const saved = localStorage.getItem("eb_date_range");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { preset:"last_30", ...getPresetRange("last_30") };
+  });
   const [metaLoading, setMetaLoading] = useState(false);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
 
@@ -2148,6 +2624,21 @@ export default function App() {
     setToasts(p=>[...p, {id, msg, type}]);
     setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)), 3500);
   }
+
+  // Persistir estado crítico en localStorage — sobrevive tab discard, recarga y cierre del browser
+  useEffect(() => {
+    try {
+      if (activeProjectId) localStorage.setItem("eb_active_project", activeProjectId);
+      else localStorage.removeItem("eb_active_project");
+    } catch {}
+  }, [activeProjectId]);
+  useEffect(() => {
+    // No persistir "overview" — es pantalla de bienvenida/selección, no una sección permanente
+    try { if (page !== "overview") localStorage.setItem("eb_page", page); } catch {}
+  }, [page]);
+  useEffect(() => {
+    try { localStorage.setItem("eb_date_range", JSON.stringify(dateRange)); } catch {}
+  }, [dateRange]);
 
   // Apply CSS variables for theme transitions
   useEffect(()=>{
@@ -2236,7 +2727,19 @@ export default function App() {
         }
       } catch(e) { /* meta_configs opcional */ }
       setAllAccounts(accs);
-      if (accs.length > 0) setActiveProjectId(accs[0].id);
+      if (accs.length > 0) {
+        const savedId = localStorage.getItem("eb_active_project");
+        const savedValid = savedId && accs.some(a => a.id === savedId);
+        if (savedValid) {
+          // Usuario recurrente: ir directo a la cuenta y sección que tenía
+        } else if (accs.length === 1) {
+          // Una sola cuenta disponible: entrar directo sin pantalla de selección
+          setActiveProjectId(accs[0].id);
+        } else {
+          // Múltiples cuentas, sin preferencia guardada: mostrar pantalla de selección
+          setPage("overview");
+        }
+      }
     } catch(e) { console.warn("accounts:", e.message); }
 
     // 3. Usuarios (solo master)
@@ -2259,13 +2762,16 @@ export default function App() {
     setAllAccounts(DEMO_ACCOUNTS);
     setAllUsers(DEMO_USERS);
     setTasks(DEMO_TASKS);
-    setActiveProjectId(DEMO_ACCOUNTS[0]?.id);
+    const savedId = localStorage.getItem("eb_active_project");
+    const savedValid = savedId && DEMO_ACCOUNTS.some(a => a.id === savedId);
+    if (!savedValid) setPage("overview");
   }
 
   async function handleLogout() {
     if (isSupabaseConfigured && supabase) {
       await supabase.auth.signOut();
     }
+    try { localStorage.removeItem("eb_active_project"); localStorage.removeItem("eb_page"); } catch {}
     setUser(null);
     setAllAccounts([]);
     setAllUsers([]);
@@ -2274,13 +2780,29 @@ export default function App() {
     setPage("dashboard");
   }
 
+  // Listener visibilitychange: cuando el usuario vuelve a la pestaña después de tab discard,
+  // la página recarga y los useState ya leyeron de localStorage. Este listener maneja el caso
+  // donde el JS no se mató (cambio rápido de pestaña) pero los datos de Meta podrían estar stale.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      // Si el estado en memoria es válido, no hacer nada
+      if (allAccounts.length === 0 && user) {
+        // Estado perdido (tab fue descartada) — recargar datos de usuario
+        loadUserData(user.id, user.email).catch(console.error);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [allAccounts.length, user]);
+
   // Fetch Meta API cuando cambia la cuenta activa o el rango de fechas
   // El token viene directo del account (no de meta_configs)
   useEffect(() => {
     const acc = allAccounts.find(a => a.id === activeProjectId);
     if (!acc?.meta_token || !acc?.meta_ad_account_id) return;
     fetchMetaData(activeProjectId, acc.meta_token, acc.meta_ad_account_id, dateRange.from, dateRange.to);
-  }, [activeProjectId, dateRange]);
+  }, [activeProjectId, dateRange, allAccounts.length]);
 
   async function handleSaveGoals(goals) {
     if (isSupabaseConfigured && supabase && activeProjectId) {
@@ -2294,57 +2816,88 @@ export default function App() {
 
   async function fetchMetaData(accountId, token, adAccountId, from, to) {
     if (!token || !adAccountId) { toast("Falta token o ID de cuenta Meta","error"); return; }
-    // Normalizar prefijo act_
     const accId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+
+    // Cache: si hay datos recientes (< 5 min) los usamos directamente sin fetch
+    const cached = getMetaCache(accountId, from, to);
+    if (cached) {
+      setAllAccounts(prev => prev.map(a => a.id===accountId ? {...a, ...cached} : a));
+      toast("Datos cargados desde cache ✓");
+      return;
+    }
+
     setMetaLoading(true);
     try {
       const tr = JSON.stringify({ since: from, until: to });
-      const fields = "spend,impressions,reach,clicks,actions,action_values,cpm,cpc,ctr,website_purchase_roas,purchase_roas";
+      // outbound_clicks = "Clics en Enlace" real (excluye reacciones/shares)
+      // unique_ctr      = "CTR Único" real
+      const fields = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,website_purchase_roas,purchase_roas";
 
       const mkParams = extra => new URLSearchParams({ access_token: token, fields, time_range: tr, ...extra }).toString();
 
-      // Campañas e insights de ads: siempre usar level:"campaign"/"ad" en el endpoint de insights
-      // para que time_range se respete. Los sub-fields insights{...} ignoran el time_range del padre.
-      const campFields = "campaign_name,campaign_id,spend,impressions,clicks,actions,action_values,ctr,cpc";
-      const adInsFields = "ad_id,ad_name,adset_name,spend,impressions,reach,clicks,actions,action_values,cpm,cpc,ctr,frequency,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_avg_time_watched_actions,video_thruplay_watched_actions";
-      // Metadata de ads (thumbnail, status) sin time_range
-      const adMetaFields = "id,name,status,creative{thumbnail_url},adset{name}";
+      const campFields = "campaign_name,campaign_id,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr";
+      const adInsFields = "ad_id,ad_name,adset_name,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,frequency,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_avg_time_watched_actions,video_thruplay_watched_actions";
 
-      const [insRes, dailyRes, campRes, campNamesRes, adInsRes, adMetaRes] = await Promise.all([
-        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${mkParams({ level:"account" })}`),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${mkParams({ level:"account", time_increment:"1" })}`),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${new URLSearchParams({ access_token:token, fields:campFields, time_range:tr, level:"campaign" })}`),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/campaigns?${new URLSearchParams({ access_token:token, fields:"id,name,status", limit:"200" })}`),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${new URLSearchParams({ access_token:token, fields:adInsFields, time_range:tr, level:"ad", limit:"200" })}`),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/ads?${new URLSearchParams({ access_token:token, fields:adMetaFields, limit:"200" })}`),
+      // PASO 1: 5 llamadas en paralelo (sin metadata de ads — se obtiene después)
+      const [insJson, dailyJson, campJson, campNamesJson, adInsJson] = await Promise.all([
+        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${mkParams({ level:"account" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${mkParams({ level:"account", time_increment:"1" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${new URLSearchParams({ access_token:token, fields:campFields, time_range:tr, level:"campaign" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/v21.0/${accId}/campaigns?${new URLSearchParams({ access_token:token, fields:"id,name,status", limit:"200" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${new URLSearchParams({ access_token:token, fields:adInsFields, time_range:tr, level:"ad", limit:"200" })}`).then(r=>r.json()),
       ]);
-
-      const [insJson, dailyJson, campJson, campNamesJson, adInsJson, adMetaJson] = await Promise.all([insRes.json(), dailyRes.json(), campRes.json(), campNamesRes.json(), adInsRes.json(), adMetaRes.json()]);
 
       if (insJson.error) throw new Error(`[${insJson.error.code}] ${insJson.error.message}`);
 
-      // Waterfall: Meta devuelve la misma compra bajo múltiples action_types simultáneamente.
-      // Sumándolos se duplica/triplica el revenue. Usamos el PRIMERO con valor (orden de prioridad).
+      // PASO 2: obtener metadata de exactamente los ads que tienen insights.
+      // NO usar /ads?limit=200 — eso trae los primeros 200 sin filtrar por período
+      // y los ads activos pueden estar más allá de esa posición → thumbnailUrl = null.
+      // Con /?ids=... pedimos solo los que necesitamos, sin importar cuántos ads totales haya.
+      const adIds = [...new Set((adInsJson.data||[]).map(r=>r.ad_id).filter(Boolean))];
+      const adMetaMap = {};
+      if (adIds.length > 0) {
+        // image_url = cover del video en scontent CDN (funciona en browser)
+        // thumbnail_url = puede ser lookaside.fbsbx.com (requiere cookies de Facebook)
+        const adMetaFields = "name,status,creative{thumbnail_url,image_url},adset{name}";
+        const batches = [];
+        for (let i = 0; i < adIds.length; i += 50) {
+          const ids = adIds.slice(i, i + 50).join(",");
+          batches.push(
+            fetch(`https://graph.facebook.com/v21.0/?ids=${ids}&fields=${adMetaFields}&access_token=${token}`)
+              .then(r => r.json())
+          );
+        }
+        const results = await Promise.all(batches);
+        results.forEach(res => {
+          if (res && !res.error && typeof res === "object") {
+            Object.entries(res).forEach(([id, ad]) => {
+              if (ad && !ad.error) adMetaMap[id] = ad;
+            });
+          }
+        });
+      }
+
+      // Waterfall: evita doble conteo. "purchase" primero = tipo unificado que Ads Manager muestra.
       const PURCHASE_PRIORITY = [
-        "offsite_conversion.fb_pixel_purchase", // Pixel estándar (más común e-commerce)
-        "purchase",                              // CAPI / alias genérico
-        "omni_purchase",                         // Meta sintético — solo si los anteriores no existen
+        "purchase",                              // Unificado CAPI+Pixel — igual a Ads Manager
+        "offsite_conversion.fb_pixel_purchase",  // Pixel solo — fallback
+        "omni_purchase",
         "app_custom_event.fb_mobile_purchase",
         "onsite_conversion.flow_complete",
         "web_in_store_purchase",
       ];
       const CART_PRIORITY = [
-        "offsite_conversion.fb_pixel_add_to_cart",
         "add_to_cart",
+        "offsite_conversion.fb_pixel_add_to_cart",
         "omni_add_to_cart",
       ];
       const CHECKOUT_PRIORITY = [
-        "offsite_conversion.fb_pixel_initiate_checkout",
         "initiate_checkout",
+        "offsite_conversion.fb_pixel_initiate_checkout",
         "omni_initiated_checkout",
       ];
 
-      // Waterfall: retorna el primer tipo con valor > 0 (evita doble conteo)
+      // Retorna el primer tipo con valor > 0 (evita doble conteo)
       const gaFirst = (arr, types) => {
         if (!arr) return 0;
         for (const type of types) {
@@ -2352,6 +2905,22 @@ export default function App() {
           if (v > 0) return v;
         }
         return 0;
+      };
+
+      // Con fallback catch-all para naming no estándar de algunos BMs
+      const getPurchase = (arr) => {
+        if (!arr) return 0;
+        const v = gaFirst(arr, PURCHASE_PRIORITY);
+        if (v > 0) return v;
+        const fallback = arr.filter(a => a.action_type.includes("purchase"));
+        return fallback.length ? Math.max(...fallback.map(a => parseFloat(a.value || 0))) : 0;
+      };
+
+      // outbound_clicks viene como array [{action_type:"outbound_click", value:"N"}]
+      const parseOutboundClicks = (field) => {
+        if (!field) return 0;
+        if (Array.isArray(field)) return parseInt(field.find(x=>x.action_type==="outbound_click")?.value || field[0]?.value || 0);
+        return parseInt(field || 0);
       };
 
       const s = insJson.data?.[0] || {};
@@ -2370,8 +2939,8 @@ export default function App() {
         creativos: {
           alcance:     parseInt(s.reach||0),
           impresiones: parseInt(s.impressions||0),
-          ctrUnico:    parseFloat(s.ctr||0),
-          clicsEnlace: parseInt(s.clicks||0),
+          ctrUnico:    parseFloat(s.unique_ctr||s.ctr||0),       // unique_ctr = CTR Único real
+          clicsEnlace: parseOutboundClicks(s.outbound_clicks),   // outbound_clicks = Clics en Enlace real
           cpm:         parseFloat(s.cpm||0),
         },
         acciones: {
@@ -2391,8 +2960,19 @@ export default function App() {
       const daily = (dailyJson.data||[]).map(d => {
         const sp = parseFloat(d.spend||0);
         const rv = gaFirst(d.action_values, PURCHASE_PRIORITY);
-        const cn = gaFirst(d.actions,       PURCHASE_PRIORITY);
-        return { day: d.date_start, spend: sp, revenue: rv, roas: sp>0?rv/sp:0, conversions: cn };
+        const cn   = gaFirst(d.actions, PURCHASE_PRIORITY);
+        const impr = parseInt(d.impressions||0);
+        const clks = parseOutboundClicks(d.outbound_clicks);
+        return {
+          day: d.date_start, spend: sp, revenue: rv,
+          roas: sp>0?rv/sp:0, conversions: cn,
+          impressions: impr,
+          ctr: parseFloat(d.unique_ctr||d.ctr||0),
+          cpm: parseFloat(d.cpm||0),
+          cpc: parseFloat(d.cpc||0),
+          clicks: clks,
+          cpa: cn>0 ? sp/cn : 0,
+        };
       });
 
       // Mapa de id → status/nombre desde el endpoint de campañas sin time_range
@@ -2402,8 +2982,8 @@ export default function App() {
       // Insights por campaña con time_range correcto
       const campaigns = (campJson.data||[]).map(row => {
         const sp = parseFloat(row.spend||0);
-        const rv = gaFirst(row.action_values, PURCHASE_PRIORITY);
-        const cn = gaFirst(row.actions,       PURCHASE_PRIORITY);
+        const rv = getPurchase(row.action_values);
+        const cn = getPurchase(row.actions);
         const meta = campStatusMap[row.campaign_id] || {};
         return {
           id:     row.campaign_id,
@@ -2413,30 +2993,46 @@ export default function App() {
           revenue:rv,
           roas:   sp > 0 ? rv / sp : 0,
           cpa:    cn > 0 ? sp / cn : 0,
-          ctr:    parseFloat(row.ctr||0),
+          ctr:    parseFloat(row.unique_ctr||row.ctr||0),
           conversions: cn,
         };
       });
 
-      // Creativos: insights por ad con time_range correcto + metadata (thumbnail/status) sin time_range
-      const adMetaMap = {};
-      (adMetaJson.data||[]).forEach(ad => { adMetaMap[ad.id] = ad; });
+      // adMetaMap ya fue construido arriba con los IDs exactos de insights
 
-      const gv = (arr, type) => parseFloat(arr?.find(a=>a.action_type===type)?.value||0);
+      // gv busca por action_type específico (para acciones generales con múltiples tipos)
+      const gv = (arr, ...types) => {
+        if (!arr) return 0;
+        for (const t of types) {
+          const v = parseFloat(arr.find(a => a.action_type === t)?.value || 0);
+          if (v > 0) return v;
+        }
+        return 0;
+      };
+      // gvVid: para campos de video con un solo valor en el array (p25, p50, etc.).
+      // Meta puede cambiar el action_type name entre versiones — tomamos el primer valor del array.
+      const gvVid = arr => {
+        if (!arr || !arr.length) return 0;
+        // Intentar suma de todos los valores del array (evita perder datos por action_type desconocido)
+        const total = arr.reduce((s, a) => s + parseFloat(a.value || 0), 0);
+        return total;
+      };
       const creatives = (adInsJson.data||[]).map(row => {
         const meta = adMetaMap[row.ad_id] || {};
         const sp   = parseFloat(row.spend||0);
-        const rv   = gaFirst(row.action_values, PURCHASE_PRIORITY);
-        const cn   = gaFirst(row.actions,       PURCHASE_PRIORITY);
+        const rv   = getPurchase(row.action_values);
+        const cn   = getPurchase(row.actions);
         const impr = parseInt(row.impressions||0);
-        const v3s  = gv(row.video_play_actions,             "video_view");
-        const p25  = gv(row.video_p25_watched_actions,      "video_p25_watched");
-        const p50  = gv(row.video_p50_watched_actions,      "video_p50_watched");
-        const p75  = gv(row.video_p75_watched_actions,      "video_p75_watched");
-        const p95  = gv(row.video_p95_watched_actions,      "video_p95_watched");
-        const p100 = gv(row.video_p100_watched_actions,     "video_p100_watched");
-        const thr  = gv(row.video_thruplay_watched_actions, "video_thruplay_watched");
-        const avgT = gv(row.video_avg_time_watched_actions, "video_avg_time_watched");
+        const v3s  = gv(row.video_play_actions, "video_view", "video_view_impressions");
+        const p25  = gvVid(row.video_p25_watched_actions);
+        const p50  = gvVid(row.video_p50_watched_actions);
+        const p75  = gvVid(row.video_p75_watched_actions);
+        const p95  = gvVid(row.video_p95_watched_actions);
+        const p100 = gvVid(row.video_p100_watched_actions);
+        const thr  = gvVid(row.video_thruplay_watched_actions);
+        const rawAvgT = gvVid(row.video_avg_time_watched_actions);
+        // Meta v16+ devuelve avg_time en milisegundos; versiones anteriores en segundos
+        const avgT = rawAvgT > 1000 ? rawAvgT / 1000 : rawAvgT;
         const isVideo = v3s > 0;
         const hookRate = impr > 0 ? (v3s / impr) * 100 : 0;
         return {
@@ -2444,7 +3040,20 @@ export default function App() {
           status: meta.status || "ACTIVE",
           type: isVideo ? "VIDEO" : "IMAGE",
           thumb: isVideo ? "🎬" : "📷",
-          thumbnailUrl: meta.creative?.thumbnail_url || null,
+          // Preferir image_url (scontent CDN, carga siempre) sobre thumbnail_url
+          // thumbnail_url para videos suele ser lookaside.fbsbx.com (requiere cookies Facebook)
+          thumbnailUrl: (() => {
+            const c = meta.creative;
+            if (!c) return null;
+            const iurl = c.image_url;
+            const turl = c.thumbnail_url;
+            // Si image_url existe y es CDN público → usarla
+            if (iurl && !iurl.includes("lookaside")) return iurl;
+            // Si thumbnail_url es CDN público → usarla
+            if (turl && !turl.includes("lookaside")) return turl;
+            // Último recurso: cualquier URL que haya
+            return iurl || turl || null;
+          })(),
           campaign: row.adset_name || meta.adset?.name || "",
           hookRate, thumbstopRate: hookRate,
           retention25:  v3s > 0 ? (p25  / v3s) * 100 : 0,
@@ -2453,10 +3062,10 @@ export default function App() {
           retention95:  v3s > 0 ? (p95  / v3s) * 100 : 0,
           retention100: v3s > 0 ? (p100 / v3s) * 100 : 0,
           thruplays: thr, avgWatchTime: avgT, videoViews3s: v3s,
-          ctr: parseFloat(row.ctr||0), cpm: parseFloat(row.cpm||0),
+          ctr: parseFloat(row.unique_ctr||row.ctr||0), cpm: parseFloat(row.cpm||0),
           cpc: parseFloat(row.cpc||0), frecuencia: parseFloat(row.frequency||0),
           alcance: parseInt(row.reach||0), impressions: impr,
-          clics: parseInt(row.clicks||0), conversions: cn,
+          clics: parseOutboundClicks(row.outbound_clicks), conversions: cn,
           spend: sp, revenue: rv,
           cpa: cn > 0 ? sp / cn : 0,
           roas: sp > 0 ? rv / sp : 0,
@@ -2464,7 +3073,9 @@ export default function App() {
         };
       });
 
-      setAllAccounts(prev => prev.map(a => a.id===accountId ? {...a, funnel, daily, campaigns, creatives} : a));
+      const payload = { funnel, daily, campaigns, creatives };
+      setMetaCache(accountId, from, to, payload);
+      setAllAccounts(prev => prev.map(a => a.id===accountId ? {...a, ...payload} : a));
       const label = insJson.data?.length ? "Datos Meta actualizados ✓" : "Meta conectada — sin datos en el período seleccionado";
       toast(label, insJson.data?.length ? "success" : "info");
     } catch(e) {
@@ -2522,66 +3133,27 @@ export default function App() {
 
   // Sidebar width
   const sw = sidebarOpen ? 220 : 60;
+  const reportOpen = page === "report";
 
   function renderPage() {
     const noAcc = <div style={{padding:40,textAlign:"center",color:T.textFaint,fontSize:14}}>Seleccioná una cuenta para continuar.</div>;
     switch(page) {
-      case "dashboard": {
-        if (!activeAccount) return noAcc;
-        const f = activeAccount.funnel||{creativos:{},acciones:{},conversion:{}};
-        const g = activeAccount.goals||{roas:3,cpa:10,ctr:1.5,budget:1000};
-        const cr = f.creativos||{}; const ac = f.acciones||{}; const cv = f.conversion||{};
-        return (
-          <div style={{padding:"20px 24px"}}>
-            <PhaseBlock color="#60a5fa" title="CREATIVOS"
-              metrics={[
-                {label:"Alcance",value:cr.alcance||0,type:"num"},
-                {label:"Impresiones",value:cr.impresiones||0,type:"num"},
-                {label:"CTR Único",value:cr.ctrUnico||0,type:"%",goal:g.ctr},
-                {label:"Clics en Enlace",value:cr.clicsEnlace||0,type:"num"},
-                {label:"CPM",value:cr.cpm||0,type:"$",inv:true},
-              ]}
-            />
-            <PhaseBlock color="#f59e0b" title="ACCIONES EN TIENDA"
-              metrics={[
-                {label:"Add to Cart",value:ac.addToCart||0,type:"num"},
-                {label:"Pagos Iniciados",value:ac.pagosIniciados||0,type:"num"},
-                {label:"Costo Pagos",value:ac.costoPagosIniciados||0,type:"$",inv:true},
-              ]}
-            />
-            <PhaseBlock color="#4ade80" title="CONVERSIÓN"
-              metrics={[
-                {label:"Inversión",value:cv.inversion||0,type:"$"},
-                {label:"Facturación",value:cv.facturacion||0,type:"$"},
-                {label:"Costo/Compra",value:cv.costoCompra||0,type:"$",inv:true,goal:g.cpa},
-                {label:"ROAS",value:cv.roas||0,type:"x",goal:g.roas},
-                {label:"Conversiones",value:cv.conversiones||0,type:"num"},
-              ]}
-            />
-            <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"16px 20px",marginTop:4}}>
-              <PerfChart daily={activeAccount.daily||[]} color={activeAccount.color||"#e8572a"}/>
-            </div>
-          </div>
-        );
-      }
-      case "campaigns": return activeAccount
-        ? <div style={{padding:"20px 24px"}}><CampaignsTable campaigns={activeAccount.campaigns||[]} goals={activeAccount.goals||{roas:3,cpa:10,ctr:1.5}}/></div>
-        : noAcc;
+      case "overview":  return <OverviewModule accounts={allAccounts} tasks={tasks} onSelect={id=>{setActiveProjectId(id);setPage("dashboard");}}/>;
+      case "dashboard": return <DashboardPage account={activeAccount}/>;
+      case "campaigns": return activeAccount ? <div style={{padding:"20px 24px"}}><CampaignsTable campaigns={activeAccount.campaigns||[]} goals={activeAccount.goals||{roas:3,cpa:10,ctr:1.5}}/></div> : noAcc;
       case "creatives": return activeAccount ? <CreativosModule account={activeAccount} goals={activeAccount.goals||{}}/> : noAcc;
-      case "tasks": return <TasksModule userAccounts={allAccounts} allUsers={allUsers} tasks={tasks} setTasks={setTasks} currentUser={user} activeProjectId={activeProjectId}/>;
-      case "report": return <ReportBuilder account={activeAccount} tasks={tasks} dateRange={dateRange} onDateRangeChange={rng=>{ setDateRange(rng); const acc=allAccounts.find(a=>a.id===activeProjectId); if(acc?.meta_token) fetchMetaData(activeProjectId,acc.meta_token,acc.meta_ad_account_id,rng.from,rng.to); }}/>;
-      case "settings": return canEdit ? <SettingsModule currentUser={user} allAccounts={allAccounts} allUsers={allUsers} setAllAccounts={setAllAccounts} setAllUsers={setAllUsers} toast={toast} onMetaSaved={(cfg, accId) => { if (accId === activeProjectId) { setMetaConfig(cfg); } }}/> : null;
-      default: return null;
+      case "tasks":     return <TasksModule userAccounts={allAccounts} allUsers={allUsers} tasks={tasks} setTasks={setTasks} currentUser={user} activeProjectId={activeProjectId}/>;
+      case "report":    return <ReportBuilder account={activeAccount} tasks={tasks} dateRange={dateRange} onDateRangeChange={rng=>{setDateRange(rng);const acc=allAccounts.find(a=>a.id===activeProjectId);if(acc?.meta_token)fetchMetaData(activeProjectId,acc.meta_token,acc.meta_ad_account_id,rng.from,rng.to);}}/>;
+      case "settings":  return canEdit ? <SettingsModule currentUser={user} allAccounts={allAccounts} allUsers={allUsers} setAllAccounts={setAllAccounts} setAllUsers={setAllUsers} toast={toast} onMetaSaved={(cfg,accId)=>{if(accId===activeProjectId){setAllAccounts(prev=>prev.map(a=>a.id===accId?{...a,...cfg}:a));}}}/> : null;
+      default:          return null;
     }
   }
-
-  const reportOpen = page === "report";
 
   return (
     <ThemeCtx.Provider value={T}>
       <div style={{display:"flex",minHeight:"100vh",background:T.bg,fontFamily:"'Inter',system-ui,sans-serif",filter:reportOpen?"blur(5px) brightness(0.45)":"none",transition:"filter 0.25s",pointerEvents:reportOpen?"none":"auto",userSelect:reportOpen?"none":"auto"}}>
         {/* Sidebar */}
-        <div style={{width:sw,minHeight:"100vh",background:T.bg1,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",transition:"width .2s",overflow:"hidden",flexShrink:0,position:"sticky",top:0,height:"100vh"}}>
+        <div className="sidebar-desktop sidebar-full" style={{width:sw,minHeight:"100vh",background:T.bg1,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",transition:"width .2s",overflow:"hidden",flexShrink:0,position:"sticky",top:0,height:"100vh"}}>
           {/* Logo */}
           <div style={{height:56,display:"flex",alignItems:"center",padding:sidebarOpen?"0 16px":"0 10px",gap:10,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
             {sidebarOpen ? <Logo/> : <div style={{width:36,height:36,borderRadius:8,background:"#e8572a",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:14}}>E</div>}
@@ -2653,10 +3225,21 @@ export default function App() {
         {/* Main content */}
         <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column"}}>
           {/* Topbar */}
-          <div style={{height:56,background:T.bg1,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",padding:"0 20px",gap:14,flexShrink:0,position:"sticky",top:0,zIndex:100}}>
-            <span style={{fontSize:16,fontWeight:700,color:T.text}}>{navItems.find(n=>n.id===page)?.label||"Dashboard"}</span>
+          <div style={{height:56,background:T.bg1,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",padding:"0 14px",gap:10,flexShrink:0,position:"sticky",top:0,zIndex:100}}>
+            {/* Hamburguesa móvil — abre/cierra sidebar */}
+            <button className="mobile-hamburger" onClick={()=>setSidebarOpen(p=>!p)} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,padding:"4px 6px",lineHeight:1,flexShrink:0,WebkitTapHighlightColor:"transparent"}}>☰</button>
+            <span style={{fontSize:15,fontWeight:700,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>{navItems.find(n=>n.id===page)?.label||"Dashboard"}</span>
+            {/* Selector de cuenta en topbar — solo móvil */}
             {activeAccount && (
-              <span style={{fontSize:12,color:T.textMuted,background:T.bg2,border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 10px"}}>
+              <button className="mobile-account-btn" onClick={()=>setShowPicker(true)}
+                style={{display:"none",alignItems:"center",gap:7,background:T.bg2,border:`1px solid ${T.border}`,borderRadius:8,padding:"5px 10px",cursor:"pointer",flexShrink:0,WebkitTapHighlightColor:"transparent",maxWidth:130,overflow:"hidden"}}>
+                <div style={{width:22,height:22,borderRadius:5,background:activeAccount.color||"#e8572a",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:10,flexShrink:0}}>{activeAccount.name?.[0]||"?"}</div>
+                <span style={{fontSize:11,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{activeAccount.name}</span>
+                <span style={{color:T.textDim,fontSize:10,flexShrink:0}}>▼</span>
+              </button>
+            )}
+            {activeAccount && (
+              <span className="hide-mobile" style={{fontSize:12,color:T.textMuted,background:T.bg2,border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 10px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:140,flexShrink:0}}>
                 {activeAccount.name}
               </span>
             )}
@@ -2667,28 +3250,66 @@ export default function App() {
                 </button>
               )}
               {["dashboard","campaigns","creatives"].includes(page) && (
-                <DateRangePicker dateRange={dateRange} onChange={setDateRange}/>
+                <span className="hide-mobile"><DateRangePicker dateRange={dateRange} onChange={setDateRange}/></span>
               )}
               {metaLoading && (
                 <span style={{fontSize:11,background:"#3b82f622",border:"1px solid #3b82f644",color:"#60a5fa",borderRadius:6,padding:"3px 10px"}}>
-                  Actualizando Meta...
+                  Actualizando...
                 </span>
               )}
               {activeAccount?.meta_token && !metaLoading && (
-                <span style={{fontSize:11,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"3px 10px",cursor:"pointer"}} onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)} title="Actualizar datos">
-                  ● Meta conectada
-                </span>
+                <button onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)}
+                  style={{fontSize:11,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:600,WebkitTapHighlightColor:"transparent"}}>
+                  ↻ Sincronización
+                </button>
               )}
               {!isSupabaseConfigured && (
-                <span style={{fontSize:11,background:T.warn.bg,border:`1px solid ${T.warn.border}`,color:T.warn.text,borderRadius:6,padding:"3px 10px"}}>Modo demo</span>
+                <span style={{fontSize:11,background:T.warn.bg,border:`1px solid ${T.warn.border}`,color:T.warn.text,borderRadius:6,padding:"3px 10px"}}>Demo</span>
               )}
             </div>
           </div>
-          {/* Page */}
-          <div style={{flex:1,overflowY:"auto"}}>
+          {/* Barra de fecha+sync para móvil — debajo del topbar */}
+          {["dashboard","campaigns","creatives"].includes(page) && activeAccount && (
+            <div className="mobile-date-bar" style={{display:"none",alignItems:"center",gap:8,padding:"8px 14px",background:T.bg2,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+              <DateRangePicker dateRange={dateRange} onChange={rng=>{setDateRange(rng);const acc=allAccounts.find(a=>a.id===activeProjectId);if(acc?.meta_token)fetchMetaData(activeProjectId,acc.meta_token,acc.meta_ad_account_id,rng.from,rng.to);}}/>
+              {activeAccount.meta_token && !metaLoading && (
+                <button onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)}
+                  style={{flexShrink:0,fontSize:12,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontWeight:700,WebkitTapHighlightColor:"transparent"}}>
+                  ↻
+                </button>
+              )}
+            </div>
+          )}
+          <div className="main-scroll" style={{flex:1,overflowY:"auto",paddingBottom:0}}>
             {renderPage()}
           </div>
         </div>
+      </div>
+
+      {/* Backdrop para cerrar sidebar en móvil */}
+      {sidebarOpen && (
+        <div className="mobile-sidebar-backdrop"
+          onClick={()=>setSidebarOpen(false)}
+          style={{display:"none",position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:499}}/>
+      )}
+
+      {/* Barra de navegación inferior — solo móvil, sin estado adicional */}
+      <div className="mobile-bottom-nav" style={{display:"none",position:"fixed",bottom:0,left:0,right:0,zIndex:200,height:56,alignItems:"center",background:T.bg1,borderTop:`1px solid ${T.border}`}}>
+        {["dashboard","campaigns","creatives","tasks"].map(id=>{
+          const n = NAV_ITEMS.find(x=>x.id===id);
+          if (!n) return null;
+          const active = page===id;
+          return (
+            <button key={id} onClick={()=>setPage(id)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",color:active?"#e8572a":T.textMuted}}>
+              <span style={{fontSize:20,lineHeight:1}}>{n.icon}</span>
+              <span style={{fontSize:9,fontWeight:active?700:400}}>{n.label}</span>
+            </button>
+          );
+        })}
+        <button onClick={()=>setSidebarOpen(p=>!p)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",color:T.textMuted}}>
+          <span style={{fontSize:20,lineHeight:1}}>☰</span>
+          <span style={{fontSize:9}}>Más</span>
+        </button>
       </div>
 
       {showPicker && <ProjectPicker accounts={allAccounts} activeId={activeProjectId} onSelect={setActiveProjectId} onClose={()=>setShowPicker(false)}/>}
@@ -2709,7 +3330,7 @@ export default function App() {
             <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
               {metaLoading && <span style={{fontSize:11,background:"#3b82f622",border:"1px solid #3b82f644",color:"#60a5fa",borderRadius:6,padding:"3px 10px"}}>Actualizando Meta...</span>}
               {activeAccount?.meta_token && !metaLoading && (
-                <span style={{fontSize:11,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"3px 10px",cursor:"pointer"}} onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)}>● Meta conectada</span>
+                <span style={{fontSize:11,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"3px 10px",cursor:"pointer"}} onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)}>↻ Sincronización</span>
               )}
             </div>
           </div>
@@ -2730,6 +3351,71 @@ export default function App() {
         ::-webkit-scrollbar-thumb { background: ${T.border2}; border-radius: 3px; }
         .kanban-grid { grid-template-columns: repeat(3,1fr) !important; }
         @media(max-width:900px) { .kanban-grid { grid-template-columns: 1fr !important; } }
+
+        /* Hamburguesa: oculta en desktop */
+        .mobile-hamburger { display: none; }
+
+        @media(max-width:768px) {
+          /* Sidebar: oculta via clase sidebar-full del index.html */
+          /* Hamburguesa, barra inferior y barra de fecha visibles */
+          .mobile-hamburger { display: flex !important; }
+          .mobile-bottom-nav { display: flex !important; }
+          .mobile-date-bar { display: flex !important; }
+          .mobile-account-btn { display: flex !important; }
+
+          /* Espacio para la barra inferior */
+          .main-scroll { padding-bottom: 60px !important; }
+
+          /* Grids adaptativos */
+          .phase-metrics-grid { grid-template-columns: repeat(2,1fr) !important; gap:8px !important; }
+          .creatives-grid { grid-template-columns: repeat(2,1fr) !important; gap:10px !important; }
+          .account-cards-grid { grid-template-columns: 1fr !important; }
+          .kanban-grid { grid-template-columns: 1fr !important; }
+          .campaigns-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+
+          /* Padding reducido */
+          .page-pad { padding: 12px !important; }
+
+          /* DatePicker oculto en topbar */
+          .hide-mobile { display: none !important; }
+
+          /* Sidebar: oculta por defecto en móvil */
+          .sidebar-desktop { display: none !important; }
+
+          /* Sidebar abierta (width:220px) → overlay encima del contenido */
+          .sidebar-desktop:not([style*="width: 60"]) {
+            display: flex !important;
+            position: fixed !important;
+            top: 0 !important; left: 0 !important; bottom: 0 !important;
+            height: 100vh !important;
+            z-index: 500 !important;
+            box-shadow: 4px 0 32px rgba(0,0,0,0.5) !important;
+          }
+
+          /* Backdrop detrás de la sidebar abierta */
+          .mobile-sidebar-backdrop { display: block !important; position: fixed !important; inset: 0 !important; z-index: 499 !important; }
+        }
+
+        /* DateRangePicker dropdown centrado en móvil */
+        @media(max-width:768px) {
+          .date-range-drop {
+            position: fixed !important;
+            top: auto !important;
+            bottom: 70px !important;
+            left: 14px !important;
+            right: 14px !important;
+            width: auto !important;
+            min-width: unset !important;
+            max-height: 65vh !important;
+            overflow-y: auto !important;
+            border-radius: 14px !important;
+          }
+        }
+
+        @media(max-width:420px) {
+          .creatives-grid { grid-template-columns: 1fr !important; }
+          .phase-metrics-grid { grid-template-columns: 1fr 1fr !important; }
+        }
       `}</style>
     </ThemeCtx.Provider>
   );

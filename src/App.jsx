@@ -6,6 +6,9 @@ import {
   PolarGrid, PolarAngleAxis
 } from "recharts";
 import { supabase, isSupabaseConfigured } from "./lib/supabase";
+import * as reportStore from "./lib/reportStore";
+import AuditoriaPage from "./modules/auditoria/AuditoriaPage";
+import GananciasModule from "./modules/ganancias/GananciasModule";
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const ThemeCtx = createContext(null);
@@ -13,10 +16,10 @@ function useT() { return useContext(ThemeCtx); }
 
 const DARK = {
   mode: "dark",
-  bg: "#0d0f12", bg1: "#111215", bg2: "#16181c",
-  border: "#1c1e22", border2: "#2a2d35",
+  bg: "#13161d", bg1: "#191c25", bg2: "#1e222c",
+  border: "#262a35", border2: "#313643",
   text: "#f0f0f0", textSub: "#ddd", textMuted: "#888", textDim: "#555", textFaint: "#444",
-  hover: "#14161a", divider: "#1a1c20",
+  hover: "#1c2030", divider: "#21252f",
   ok:   { bg: "#0a2e1a", text: "#4ade80", border: "#166534" },
   warn: { bg: "#2a1f00", text: "#fbbf24", border: "#854d0e" },
   bad:  { bg: "#2d0a0a", text: "#f87171", border: "#991b1b" },
@@ -427,18 +430,24 @@ function MetricBar({ value, max=100, color="#e8572a", label, sublabel }) {
 function RetentionCurve({ cr }) {
   const T = useT();
   if (!cr.videoViews3s) return null;
-  const pts = [
-    { label:"3s (Hook)", value:cr.hookRate, color: cr.hookRate>=30?"#4ade80":cr.hookRate>=15?"#fbbf24":"#f87171" },
-    { label:"25%",       value:cr.retention25,  color:"#60a5fa" },
-    { label:"50%",       value:cr.retention50,  color:"#a78bfa" },
-    { label:"75%",       value:cr.retention75,  color:"#f59e0b" },
-    { label:"95%",       value:cr.retention95,  color:"#f87171" },
-    { label:"100%",      value:cr.retention100, color:"#4ade80" },
+  const hookColor = cr.hookRate>=30?"#4ade80":cr.hookRate>=15?"#fbbf24":"#f87171";
+  const retPts = [
+    { label:"25%",  value:cr.retention25,  color:"#60a5fa" },
+    { label:"50%",  value:cr.retention50,  color:"#a78bfa" },
+    { label:"75%",  value:cr.retention75,  color:"#f59e0b" },
+    { label:"95%",  value:cr.retention95,  color:"#f87171" },
+    { label:"100%", value:cr.retention100, color:"#4ade80" },
   ];
   return (
     <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px"}}>
       <div style={{fontSize:10,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>Retención de video</div>
-      {pts.map(p => <MetricBar key={p.label} label={p.label} value={p.value} color={p.color}/>)}
+      {/* Hook Rate como card destacada */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:T.bg1,border:`1px solid ${hookColor}44`,borderRadius:7,padding:"8px 12px",marginBottom:10}}>
+        <span style={{fontSize:11,color:T.textMuted,fontWeight:600}}>Hook Rate</span>
+        <span style={{fontSize:15,fontWeight:800,fontFamily:"monospace",color:hookColor}}>{cr.hookRate.toFixed(1)}%</span>
+      </div>
+      {/* Barras de retención por porcentaje de video */}
+      {retPts.map(p => <MetricBar key={p.label} label={p.label} value={p.value} color={p.color}/>)}
       {cr.avgWatchTime > 0 && (
         <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between"}}>
           <span style={{fontSize:11,color:T.textMuted}}>Tiempo prom. reproducción</span>
@@ -1245,7 +1254,7 @@ function AccountModal({account, onSave, onClose}) {
     const accId = metaAdAccId.trim().startsWith("act_") ? metaAdAccId.trim() : `act_${metaAdAccId.trim()}`;
     try {
       const params = new URLSearchParams({ access_token: metaToken.trim(), fields: "name,currency,account_status" });
-      const res = await fetch(`https://graph.facebook.com/v21.0/${accId}?${params}`);
+      const res = await fetch(`https://graph.facebook.com/v22.0/${accId}?${params}`);
       const json = await res.json();
       if (json.error) setMetaTestStatus({ error: `[${json.error.code}] ${json.error.message}` });
       else setMetaTestStatus({ ok: true, name: json.name, currency: json.currency, status: json.account_status });
@@ -1430,46 +1439,57 @@ function UserModal({user, onSave, onClose}) {
 }
 
 // ─── INVITE USER MODAL ───────────────────────────────────────────────────────
-function InviteUserModal({user, allAccounts, onSave, onClose, toast}) {
+function InviteUserModal({user, allAccounts, currentAccounts=[], onSave, onClose, toast: toastProp}) {
   const T = useT();
   const [name, setName]       = useState(user?.name||"");
   const [email, setEmail]     = useState(user?.email||"");
   const [role, setRole]       = useState(user?.role||"team");
   const [password, setPassword] = useState("");
-  const [selAccounts, setSelAccounts] = useState([]);
+  const [selAccounts, setSelAccounts] = useState(currentAccounts);
   const [saving, setSaving]   = useState(false);
-  const [done, setDone]       = useState(null); // temp password to show
+  const [done, setDone]       = useState(null);
+  const [formError, setFormError] = useState("");
 
   const isEdit = !!user;
+
+  function showErr(msg) {
+    setFormError(msg);
+    // También intentar toast por si funciona
+    try { toastProp?.(msg, "error"); } catch {}
+    try { toast(msg, "error"); } catch {}
+  }
 
   function toggleAcc(id) {
     setSelAccounts(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   }
 
   async function handleSave() {
-    if (!email.trim()) return;
+    setFormError("");
+    if (!email.trim()) { setFormError("El email es requerido"); return; }
     setSaving(true);
     try {
       if (isEdit) {
-        // Editar: actualizar perfil y accesos
         await onSave({ name: name.trim(), email: email.trim(), role, selAccounts });
       } else {
-        // Crear usuario nuevo vía Edge Function (service role — no rompe la sesión master)
-        if (!password.trim()) { toast("Ingresá una contraseña temporal","warn"); setSaving(false); return; }
+        if (!password.trim()) { showErr("Ingresá una contraseña temporal (mín. 6 caracteres)"); setSaving(false); return; }
+        if (password.trim().length < 6) { showErr("La contraseña debe tener al menos 6 caracteres"); setSaving(false); return; }
 
-        const { data: result, error } = await supabase.functions.invoke("manage-user", {
+        const { data: result, error } = await supabase.functions.invoke("swift-task", {
           body: { action: "create", name: name.trim(), email: email.trim(), password: password.trim(), role, accountIds: selAccounts },
         });
 
-        if (error || result?.error) { toast("Error al crear usuario: "+(result?.error || error?.message),"error"); setSaving(false); return; }
-        if (!result?.id) { toast("No se pudo obtener el ID del nuevo usuario.","error"); setSaving(false); return; }
+        if (error) { showErr("Error de conexión: " + (error?.message || "no se pudo contactar la función")); setSaving(false); return; }
+        if (result?.error) { showErr("Error: " + result.error); setSaving(false); return; }
+        if (!result?.id) { showErr("La función no devolvió un ID de usuario. Revisá los logs de la Edge Function en Supabase."); setSaving(false); return; }
 
         await onSave({ name: name.trim(), email: email.trim(), role, selAccounts, id: result.id });
         setDone(password.trim());
         setSaving(false);
         return;
       }
-    } catch(e) { toast("Error: "+e.message,"error"); }
+    } catch(e) {
+      showErr("Error inesperado: " + e.message);
+    }
     setSaving(false);
     onClose();
   }
@@ -1523,29 +1543,78 @@ function InviteUserModal({user, allAccounts, onSave, onClose, toast}) {
         <div style={row}>
           <label style={lbl}>Rol</label>
           <select value={role} onChange={e=>setRole(e.target.value)} style={{...inp,cursor:"pointer"}}>
-            <option value="master">Master — acceso total</option>
-            <option value="team">Equipo — ve todas las cuentas, no puede eliminar</option>
-            <option value="client">Cliente — solo ve Dashboard y Reporte de sus cuentas</option>
+            <option value="master">Master — acceso total a todo</option>
+            <option value="team">Equipo — solo las cuentas asignadas, puede editar</option>
+            <option value="client">Cliente — solo las cuentas asignadas, vista limitada</option>
           </select>
         </div>
-        {(role==="client"||role==="team") && (
+        {role !== "master" && (
           <div style={row}>
-            <label style={lbl}>Acceso a cuentas</label>
-            <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:160,overflowY:"auto"}}>
-              {allAccounts.map(acc=>(
-                <div key={acc.id} onClick={()=>toggleAcc(acc.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,border:`1px solid ${selAccounts.includes(acc.id)?"#e8572a":T.border}`,background:selAccounts.includes(acc.id)?"#e8572a10":T.bg2,cursor:"pointer"}}>
-                  <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${selAccounts.includes(acc.id)?"#e8572a":T.border2}`,background:selAccounts.includes(acc.id)?"#e8572a":"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",flexShrink:0}}>{selAccounts.includes(acc.id)?"✓":""}</div>
-                  <span style={{fontSize:13,color:T.text}}>{acc.name}</span>
-                  {acc.client_name&&<span style={{fontSize:11,color:T.textMuted}}>· {acc.client_name}</span>}
-                </div>
-              ))}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:7}}>
+              <label style={{...lbl,marginBottom:0}}>
+                Acceso a cuentas
+                <span style={{marginLeft:6,fontSize:10,color:T.textFaint,fontWeight:400}}>({selAccounts.length}/{allAccounts.length} seleccionadas)</span>
+              </label>
+              <button
+                type="button"
+                onClick={()=>selAccounts.length===allAccounts.length?setSelAccounts([]):setSelAccounts(allAccounts.map(a=>a.id))}
+                style={{fontSize:10,padding:"2px 10px",background:"none",border:`1px solid ${T.border2}`,borderRadius:6,color:T.textMuted,cursor:"pointer"}}
+              >
+                {selAccounts.length===allAccounts.length?"Deseleccionar todo":"Seleccionar todo"}
+              </button>
             </div>
+            {allAccounts.length === 0 ? (
+              <div style={{textAlign:"center",padding:"14px 0",color:T.textFaint,fontSize:12}}>No hay cuentas creadas todavía</div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:200,overflowY:"auto",padding:"2px 0"}}>
+                {allAccounts.map(acc=>{
+                  const sel = selAccounts.includes(acc.id);
+                  return (
+                    <div key={acc.id} onClick={()=>toggleAcc(acc.id)}
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:8,
+                        border:`1px solid ${sel?"#e8572a55":T.border}`,
+                        background:sel?"#e8572a0d":T.bg2,cursor:"pointer",transition:"all .12s"}}>
+                      <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?"#e8572a":T.border2}`,
+                        background:sel?"#e8572a":"none",display:"flex",alignItems:"center",justifyContent:"center",
+                        fontSize:10,color:"#fff",flexShrink:0,fontWeight:800}}>
+                        {sel?"✓":""}
+                      </div>
+                      {acc.logo_url
+                        ? <img src={acc.logo_url} alt="" style={{width:20,height:20,borderRadius:4,objectFit:"contain",flexShrink:0}}/>
+                        : <div style={{width:20,height:20,borderRadius:4,background:acc.color||"#e8572a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:"#fff",flexShrink:0}}>{acc.name?.[0]}</div>
+                      }
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:sel?700:500,color:sel?T.text:T.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{acc.name}</div>
+                        {acc.client_name && <div style={{fontSize:10,color:T.textFaint}}>{acc.client_name}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {selAccounts.length === 0 && (
+              <div style={{fontSize:11,color:T.warn.text,background:T.warn.bg,border:`1px solid ${T.warn.border}`,borderRadius:6,padding:"6px 10px",marginTop:6}}>
+                ⚠ El usuario no podrá ver ninguna cuenta sin tener al menos una asignada
+              </div>
+            )}
           </div>
         )}
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
-          <button onClick={onClose} style={{padding:"8px 18px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:13}}>Cancelar</button>
-          <button onClick={handleSave} disabled={saving||!email.trim()} style={{padding:"8px 18px",background:"#e8572a",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,opacity:saving?0.7:1}}>
-            {saving?"Guardando...":(isEdit?"Guardar":"Crear usuario")}
+        {role === "master" && (
+          <div style={{...row,padding:"10px 12px",background:T.ok.bg,border:`1px solid ${T.ok.border}`,borderRadius:8}}>
+            <div style={{fontSize:12,color:T.ok.text,fontWeight:600}}>★ Acceso total a todas las cuentas presentes y futuras</div>
+            <div style={{fontSize:11,color:T.ok.text,opacity:0.8,marginTop:2}}>Los usuarios Master no necesitan asignación de cuentas</div>
+          </div>
+        )}
+        {/* Error inline — siempre visible dentro del modal */}
+        {formError && (
+          <div style={{marginTop:4,marginBottom:8,padding:"10px 14px",background:"#2d0a0a",border:"1px solid #991b1b",borderRadius:8,color:"#f87171",fontSize:12,lineHeight:1.5}}>
+            ✗ {formError}
+          </div>
+        )}
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:12}}>
+          <button onClick={onClose} style={{padding:"9px 20px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:13}}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving||!email.trim()} style={{padding:"9px 22px",background:"#e8572a",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,opacity:saving||!email.trim()?0.6:1}}>
+            {saving?"Guardando...":(isEdit?"Guardar cambios":"Crear usuario")}
           </button>
         </div>
       </div>
@@ -1695,8 +1764,43 @@ function SettingsModule({currentUser, allAccounts, allUsers, setAllAccounts, set
   const [showUserModal, setShowUserModal] = useState(false);
   const [editAcc, setEditAcc] = useState(null);
   const [editUser, setEditUser] = useState(null);
+  const [userAccesses, setUserAccesses] = useState({});   // { userId: [accountId, ...] }
+  const [editUserAccounts, setEditUserAccounts] = useState([]);
 
   const isMaster = currentUser?.role === "master";
+
+  // Cargar usuarios y accesos cuando se abre la pestaña de usuarios
+  useEffect(() => {
+    if (tab === "users" && isMaster) {
+      refreshUsers();
+      loadAllAccesses();
+    }
+  }, [tab]);
+
+  async function refreshUsers() {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { data, error } = await supabase.from("profiles").select("*").order("name");
+    if (!error && data && data.length > 0) setAllUsers(data);
+  }
+
+  async function loadAllAccesses() {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { data } = await supabase.from("account_access").select("profile_id, account_id");
+    if (data) {
+      const map = {};
+      data.forEach(row => {
+        if (!map[row.profile_id]) map[row.profile_id] = [];
+        map[row.profile_id].push(row.account_id);
+      });
+      setUserAccesses(map);
+    }
+  }
+
+  function openEditUser(u) {
+    setEditUser(u);
+    setEditUserAccounts(userAccesses[u.id] || []);
+    setShowUserModal(true);
+  }
 
   async function handleSaveAccount(data) {
     const accountId = editAcc ? editAcc.id : (crypto.randomUUID?.() || Date.now().toString());
@@ -1751,18 +1855,28 @@ function SettingsModule({currentUser, allAccounts, allUsers, setAllAccounts, set
       }
       setAllUsers(p=>p.map(u=>u.id===editUser.id?{...u,...data}:u));
       toast("Usuario actualizado");
-      setShowUserModal(false); setEditUser(null);
+      setShowUserModal(false); setEditUser(null); setEditUserAccounts([]);
+      setTimeout(loadAllAccesses, 500);
     } else {
       // Nuevo usuario — agregar a estado local inmediatamente
-      const newU = {id:data.id||Date.now().toString(), name:data.name, email:data.email, role:data.role, avatar:(data.name||data.email||"?")[0].toUpperCase()};
-      setAllUsers(p=>[...p, newU]);
-      setShowUserModal(false); setEditUser(null);
-      // Re-fetch desde Supabase para confirmar que quedó guardado (trigger puede tardar 1-2s)
+      // Agregar inmediatamente al estado local con todos los campos correctos
+      const newU = {
+        id: data.id || Date.now().toString(),
+        name: data.name || "",
+        email: data.email || "",
+        role: data.role || "team",
+        avatar: (data.name || data.email || "?")[0].toUpperCase()
+      };
+      setAllUsers(p => [...p, newU]);
+      setShowUserModal(false); setEditUser(null); setEditUserAccounts([]);
+      toast("Usuario creado ✓");
+      // Re-fetch para confirmar y sincronizar con DB (esperamos 1.5s para que la Edge Function termine)
       if (isSupabaseConfigured && supabase) {
         setTimeout(async () => {
-          const { data: users } = await supabase.from("profiles").select("*").order("name");
-          if (users?.length) setAllUsers(users);
-        }, 2500);
+          const { data: users, error } = await supabase.from("profiles").select("*").order("name");
+          if (!error && users) setAllUsers(users);
+          loadAllAccesses();
+        }, 1500);
       }
     }
   }
@@ -1770,7 +1884,7 @@ function SettingsModule({currentUser, allAccounts, allUsers, setAllAccounts, set
   async function handleDeleteUser(id) {
     if (!confirm("¿Eliminar este usuario?")) return;
     if (isSupabaseConfigured && supabase) {
-      const { data: result, error } = await supabase.functions.invoke("manage-user", {
+      const { data: result, error } = await supabase.functions.invoke("swift-task", {
         body: { action: "delete", userId: id },
       });
       if (error || result?.error) { toast("Error al eliminar: "+(result?.error || error?.message),"error"); return; }
@@ -1817,25 +1931,100 @@ function SettingsModule({currentUser, allAccounts, allUsers, setAllAccounts, set
 
       {tab==="users" && isMaster && (
         <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <span style={{fontSize:14,fontWeight:600,color:T.textSub}}>Usuarios del sistema</span>
-            <button onClick={()=>{setEditUser(null);setShowUserModal(true)}} style={{padding:"7px 16px",background:"#e8572a",border:"none",borderRadius:7,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Invitar usuario</button>
-          </div>
-          {allUsers.map(u=>(
-            <div key={u.id} style={card}>
-              <div style={{width:36,height:36,borderRadius:"50%",background:ROLE_COLOR[u.role]||"#e8572a",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:13}}>{(u.name||u.email||"?")[0].toUpperCase()}</div>
-              <div style={{flex:1}}>
-                <div style={{fontWeight:600,color:T.text,fontSize:13}}>{u.name||u.email}</div>
-                <div style={{fontSize:11,color:T.textMuted}}>{u.email} · <span style={{color:ROLE_COLOR[u.role],fontWeight:600}}>{ROLE_LABEL[u.role]||u.role}</span></div>
-              </div>
-              {u.id !== currentUser?.id && <>
-                <button onClick={()=>{setEditUser(u);setShowUserModal(true)}} style={{padding:"5px 12px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:6,color:T.textSub,cursor:"pointer",fontSize:12}}>Editar</button>
-                <button onClick={()=>handleDeleteUser(u.id)} style={{padding:"5px 12px",background:T.bad.bg,border:`1px solid ${T.bad.border}`,borderRadius:6,color:T.bad.text,cursor:"pointer",fontSize:12}}>Eliminar</button>
-              </>}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div>
+              <span style={{fontSize:14,fontWeight:600,color:T.textSub}}>Usuarios del sistema</span>
+              <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{allUsers.length} usuario{allUsers.length!==1?"s":""} registrado{allUsers.length!==1?"s":""}</div>
             </div>
-          ))}
-          {allUsers.length===0&&<div style={{textAlign:"center",padding:30,color:T.textFaint,fontSize:13}}>Sin usuarios. Invitá el primero.</div>}
-          {showUserModal && <InviteUserModal user={editUser} allAccounts={allAccounts} onSave={handleSaveUser} onClose={()=>{setShowUserModal(false);setEditUser(null)}} toast={toast}/>}
+            <button onClick={()=>{setEditUser(null);setEditUserAccounts([]);setShowUserModal(true)}} style={{padding:"7px 16px",background:"#e8572a",border:"none",borderRadius:7,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Invitar usuario</button>
+          </div>
+
+          {/* Leyenda de roles */}
+          <div style={{display:"flex",gap:12,marginBottom:14,padding:"8px 12px",background:T.bg2,borderRadius:8,flexWrap:"wrap"}}>
+            {Object.entries(ROLE_LABEL).map(([role,label])=>(
+              <span key={role} style={{fontSize:11,color:ROLE_COLOR[role],fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:ROLE_COLOR[role],display:"inline-block"}}/>
+                {label}
+              </span>
+            ))}
+            <span style={{fontSize:11,color:T.textFaint,marginLeft:"auto"}}>
+              Master: acceso total · Equipo: todas las cuentas · Cliente: solo sus cuentas
+            </span>
+          </div>
+
+          {allUsers.map(u=>{
+            const accIds = userAccesses[u.id] || [];
+            const userAccNames = accIds.map(id=>allAccounts.find(a=>a.id===id)?.name).filter(Boolean);
+            const isMe = u.id === currentUser?.id;
+            return (
+              <div key={u.id} style={{...card, flexWrap:"wrap", alignItems:"flex-start", gap:12}}>
+                {/* Avatar */}
+                <div style={{width:40,height:40,borderRadius:"50%",background:ROLE_COLOR[u.role]||"#e8572a",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0,border:`2px solid ${ROLE_COLOR[u.role]}33`}}>
+                  {(u.name||u.email||"?")[0].toUpperCase()}
+                </div>
+                {/* Info */}
+                <div style={{flex:1,minWidth:180}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:700,color:T.text,fontSize:13}}>{u.name||"Sin nombre"}</span>
+                    <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:ROLE_COLOR[u.role]+"22",color:ROLE_COLOR[u.role],border:`1px solid ${ROLE_COLOR[u.role]}44`,fontWeight:700}}>
+                      {ROLE_LABEL[u.role]||u.role}
+                    </span>
+                    {isMe && <span style={{fontSize:10,color:T.textFaint,fontStyle:"italic"}}>· Vos</span>}
+                  </div>
+                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{u.email}</div>
+                  {/* Accesos a cuentas */}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:6}}>
+                    {u.role==="master" ? (
+                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:"#e8572a22",color:"#e8572a",border:"1px solid #e8572a44",fontWeight:600}}>
+                        ★ Acceso total a todas las cuentas
+                      </span>
+                    ) : userAccNames.length > 0 ? (
+                      <>
+                        {userAccNames.slice(0,4).map(name=>(
+                          <span key={name} style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:T.bg2,color:T.textSub,border:`1px solid ${T.border}`,fontWeight:500}}>
+                            {name}
+                          </span>
+                        ))}
+                        {userAccNames.length > 4 && (
+                          <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:T.bg2,color:T.textFaint,border:`1px solid ${T.border}`}}>
+                            +{userAccNames.length - 4} más
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{fontSize:10,padding:"2px 6px",borderRadius:8,background:T.warn.bg,color:T.warn.text,border:`1px solid ${T.warn.border}`,fontWeight:600}}>
+                        ⚠ Sin acceso a cuentas
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* Acciones */}
+                {!isMe && (
+                  <div style={{display:"flex",gap:6,flexShrink:0,alignSelf:"center"}}>
+                    <button onClick={()=>openEditUser(u)} style={{padding:"6px 14px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:12,fontWeight:600}}>✏ Editar</button>
+                    <button onClick={()=>handleDeleteUser(u.id)} style={{padding:"6px 12px",background:T.bad.bg,border:`1px solid ${T.bad.border}`,borderRadius:7,color:T.bad.text,cursor:"pointer",fontSize:12,fontWeight:600}}>🗑</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {allUsers.length===0 && (
+            <div style={{textAlign:"center",padding:"40px 20px",color:T.textFaint,fontSize:13}}>
+              <div style={{fontSize:32,marginBottom:10,opacity:0.3}}>👥</div>
+              <div style={{fontWeight:600,color:T.textSub,marginBottom:4}}>Sin usuarios todavía</div>
+              <div>Invitá el primero con el botón de arriba</div>
+            </div>
+          )}
+          {showUserModal && (
+            <InviteUserModal
+              user={editUser}
+              allAccounts={allAccounts}
+              currentAccounts={editUserAccounts}
+              onSave={handleSaveUser}
+              onClose={()=>{setShowUserModal(false);setEditUser(null);setEditUserAccounts([]);}}
+              toast={toast}
+            />
+          )}
         </div>
       )}
 
@@ -1960,6 +2149,60 @@ function ProjectPicker({accounts, activeId, onSelect, onClose}) {
   );
 }
 
+// ─── MONTHLY REPORT HELPERS ──────────────────────────────────────────────────
+const MONTHLY_BLOCKS = [
+  { id:"m_kpis",        label:"📊 Métricas Importantes",    desc:"KPI cards con % variación vs período anterior" },
+  { id:"m_charts",      label:"📈 Gráficos de Evolución",   desc:"Inversión/Compras + ROAS en el tiempo" },
+  { id:"m_platform",    label:"🍩 Ventas por Plataforma",   desc:"Donas por placement y plataforma" },
+  { id:"m_campaigns",   label:"🎯 Resultados por Campaña",  desc:"Tabla con % variación vs anterior" },
+  { id:"m_creatives",   label:"🎨 Resultados por Creativos", desc:"Thumbnails con variación %" },
+  { id:"m_demo",        label:"👥 Demografía",              desc:"Edades top y ubicaciones top" },
+  { id:"m_conclusions", label:"📝 Conclusiones",            desc:"Análisis, trabajo y objetivos del mes" },
+];
+
+function DonutChart({ data, title, size=120 }) {
+  const total = data.reduce((s,d)=>s+(d.value||0),0);
+  if (!total) return (
+    <div style={{textAlign:"center",padding:"12px 0"}}>
+      <div style={{fontSize:9,color:"#bbb",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>{title}</div>
+      <div style={{fontSize:10,color:"#ccc"}}>Sin datos</div>
+    </div>
+  );
+  const cx=size/2, cy=size/2, R=size/2-4, r=R*0.54;
+  let angle=-Math.PI/2;
+  const slices=data.map(d=>{
+    const sweep=(d.value/total)*2*Math.PI;
+    if(sweep===0)return null;
+    const x1=cx+R*Math.cos(angle),y1=cy+R*Math.sin(angle);
+    const x2=cx+R*Math.cos(angle+sweep),y2=cy+R*Math.sin(angle+sweep);
+    const ix1=cx+r*Math.cos(angle+sweep),iy1=cy+r*Math.sin(angle+sweep);
+    const ix2=cx+r*Math.cos(angle),iy2=cy+r*Math.sin(angle);
+    const lg=sweep>Math.PI?1:0;
+    const path=`M${x1},${y1} A${R},${R} 0 ${lg} 1 ${x2},${y2} L${ix1},${iy1} A${r},${r} 0 ${lg} 0 ${ix2},${iy2} Z`;
+    angle+=sweep;
+    return {...d,path,pct:(d.value/total)*100};
+  }).filter(Boolean);
+  return (
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{fontSize:9,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:7}}>{title}</div>
+      <div style={{display:"flex",gap:10,alignItems:"center"}}>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{flexShrink:0}}>
+          {slices.map((s,i)=><path key={i} d={s.path} fill={s.color}/>)}
+        </svg>
+        <div style={{flex:1,minWidth:0}}>
+          {slices.map(s=>(
+            <div key={s.label} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
+              <div style={{width:7,height:7,borderRadius:2,background:s.color,flexShrink:0}}/>
+              <span style={{fontSize:8,color:"#555",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label}</span>
+              <span style={{fontSize:8,fontWeight:700,color:"#111"}}>{s.pct.toFixed(0)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── REPORT BUILDER ──────────────────────────────────────────────────────────
 const PDF_BLOCKS = [
   { id:"summary",    label:"Resumen ejecutivo",       desc:"Análisis automático del período" },
@@ -1985,6 +2228,39 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   const [customSummary, setCustomSummary] = useState("");
   const [generating, setGenerating] = useState(false);
   const [preview, setPreview]   = useState(true);
+  const [reportMode,    setReportMode]   = useState("classic");
+  const [monthlySel,    setMonthlySel]   = useState(["m_kpis","m_charts","m_platform","m_campaigns","m_creatives","m_demo","m_conclusions"]);
+  const [monthlyLoading,setMonthlyLoading]= useState(false);
+  const [monthlyData,   setMonthlyData]  = useState(null);
+  const [monthlyPrevData,setMonthlyPrevData]= useState(null);
+  const [monthlyPrevCamps,setMonthlyPrevCamps]= useState([]);
+  const [mPreview,      setMPreview]     = useState(true);
+  const [mGenerating,   setMGenerating]  = useState(false);
+  const [conclAnalisis, setConclAnalisis]= useState("");
+  const [conclTrabajo,  setConclTrabajo] = useState([""]);
+  const [conclProximo,  setConclProximo] = useState([""]);
+  const [conclObj,      setConclObj]     = useState({facturacion:"",roas:"",cpa:""});
+  // ─── Saved Reports state ─────────────────────────────────────────────────────
+  const [savedReports,     setSavedReports]     = useState([]);
+  const [activeReportId,   setActiveReportId]   = useState(null);
+  const [activeReportName, setActiveReportName] = useState("");
+  const [saveStatus,       setSaveStatus]       = useState("idle"); // "idle"|"saving"|"saved"
+  const [showNameModal,    setShowNameModal]    = useState(false);
+  const [nameInput,        setNameInput]        = useState("");
+  const [nameError,        setNameError]        = useState("");
+  const [renameId,         setRenameId]         = useState(null);
+  const [renameInput,      setRenameInput]      = useState("");
+  const [deleteConfirmId,  setDeleteConfirmId]  = useState(null);
+  const autosaveTimerRef = useRef(null);
+  const skipAutosaveRef  = useRef(false);
+  const activeIdRef      = useRef(null);
+  activeIdRef.current    = activeReportId;
+  const buildConfigRef   = useRef(null);
+  buildConfigRef.current = () => ({
+    sel, monthlySel, reportMode, note, customSummary,
+    conclAnalisis, conclTrabajo, conclProximo, conclObj,
+    dateFrom, dateTo, accountId: account?.id,
+  });
 
   if (!account) return <div style={{padding:40,textAlign:"center",color:T.textFaint,fontSize:14}}>Seleccioná una cuenta para generar el reporte.</div>;
 
@@ -2028,6 +2304,321 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
       pdf.save(`EcomBoost_${account.name}_${dateFrom}_${dateTo}.pdf`);
     } catch(e) { console.error(e); }
     setGenerating(false);
+  }
+
+  async function fetchMonthlyData() {
+    if (!account?.meta_token || !account?.meta_ad_account_id) return;
+    setMonthlyLoading(true);
+    const token = account.meta_token;
+    const accId = account.meta_ad_account_id.startsWith("act_") ? account.meta_ad_account_id : `act_${account.meta_ad_account_id}`;
+    const META_V = "v22.0";
+    const tr = JSON.stringify({ since: dateFrom, until: dateTo });
+    const days = Math.max(1, Math.round((new Date(dateTo)-new Date(dateFrom))/86400000));
+    const prevTo   = new Date(new Date(dateFrom).getTime()-86400000).toISOString().slice(0,10);
+    const prevFrom = new Date(new Date(dateFrom).getTime()-days*86400000).toISOString().slice(0,10);
+    const prevTr   = JSON.stringify({ since: prevFrom, until: prevTo });
+    const baseF    = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr";
+    try {
+      const [platR,ageR,regionR,prevR,prevCampR] = await Promise.all([
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({access_token:token,fields:"spend,actions,action_values,impressions",time_range:tr,level:"account",breakdowns:"publisher_platform,platform_position"})}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({access_token:token,fields:"actions,action_values,impressions",time_range:tr,level:"account",breakdowns:"age"})}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({access_token:token,fields:"outbound_clicks,impressions",time_range:tr,level:"account",breakdowns:"region"})}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({access_token:token,fields:baseF,time_range:prevTr,level:"account"})}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({access_token:token,fields:"campaign_name,campaign_id,spend,actions,action_values",time_range:prevTr,level:"campaign"})}`).then(r=>r.json()),
+      ]);
+      setMonthlyData({ plat:platR.data||[], age:ageR.data||[], region:regionR.data||[] });
+      setMonthlyPrevData(prevR.data?.[0]||null);
+      setMonthlyPrevCamps(prevCampR.data||[]);
+    } catch(e) { console.error("Monthly fetch:",e); }
+    setMonthlyLoading(false);
+  }
+
+  async function generateMonthlyPDF() {
+    setMGenerating(true);
+    if (!mPreview) setMPreview(true);
+    await new Promise(r=>setTimeout(r,600));
+    try {
+      await new Promise((res,rej)=>{ if(window.html2canvas)return res(); const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+      await new Promise((res,rej)=>{ if(window.jspdf)return res(); const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+      const el = document.getElementById("monthly-pdf-target");
+      if (!el) { setMGenerating(false); return; }
+      const canvas = await window.html2canvas(el, { scale:2, useCORS:true, backgroundColor:"#ffffff", width:el.scrollWidth, height:el.scrollHeight });
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
+      const cW=186, imgH=(canvas.height*cW)/canvas.width;
+      let y=0;
+      while(y<imgH) {
+        if(y>0) pdf.addPage();
+        const sl=Math.min(273,imgH-y);
+        const srcY=(y/imgH)*canvas.height, srcH=(sl/imgH)*canvas.height;
+        const c2=document.createElement("canvas"); c2.width=canvas.width; c2.height=srcH;
+        c2.getContext("2d").drawImage(canvas,0,srcY,canvas.width,srcH,0,0,canvas.width,srcH);
+        pdf.addImage(c2.toDataURL("image/jpeg",0.92),"JPEG",12,12,cW,sl);
+        y+=sl;
+      }
+      pdf.save(`EcomBoost_Mensual_${account.name}_${dateFrom}_${dateTo}.pdf`);
+    } catch(e) { console.error(e); }
+    setMGenerating(false);
+  }
+
+  function MonthlyPDFContent() {
+    const PTYPES = ["purchase","offsite_conversion.fb_pixel_purchase","omni_purchase","web_in_store_purchase"];
+    const gPurch = (actions) => { if(!actions)return 0; for(const t of PTYPES){const v=parseFloat(actions.find(a=>a.action_type===t)?.value||0);if(v>0)return v;} return 0; };
+    const gVal   = (action_values) => { if(!action_values)return 0; for(const t of PTYPES){const v=parseFloat(action_values.find(a=>a.action_type===t)?.value||0);if(v>0)return v;} return 0; };
+    const gClks  = (f) => { if(!f)return 0; if(Array.isArray(f))return parseInt(f.find(x=>x.action_type==="outbound_click")?.value||f[0]?.value||0); return parseInt(f||0); };
+
+    const prev = monthlyPrevData;
+    const prevSpend     = parseFloat(prev?.spend||0);
+    const prevPurch     = gPurch(prev?.actions);
+    const prevRev       = gVal(prev?.action_values);
+    const prevRoas      = prevSpend>0?prevRev/prevSpend:0;
+    const prevCpa       = prevPurch>0?prevSpend/prevPurch:0;
+    const prevAtc       = parseFloat(prev?.actions?.find(a=>a.action_type==="add_to_cart")?.value||0);
+    const prevClks      = gClks(prev?.outbound_clicks);
+    const prevCpm       = parseFloat(prev?.cpm||0);
+    const prevConvRate  = prevClks>0?(prevPurch/prevClks)*100:0;
+
+    const spend     = cv.inversion||0;
+    const roas      = cv.roas||0;
+    const purchases = cv.conversiones||0;
+    const cpa       = cv.costoCompra||0;
+    const atc       = ac.addToCart||0;
+    const convRate  = cv.tasaConversionWeb||0;
+    const clicks    = cr.clicsEnlace||0;
+    const cpm       = cr.cpm||0;
+
+    const vBadge = (cur, prv, inv=false) => {
+      if(!prv||prv===0) return null;
+      const pct=((cur-prv)/Math.abs(prv))*100;
+      const up=inv?pct<=0:pct>=0;
+      return <span style={{fontSize:8,fontWeight:700,padding:"1px 4px",borderRadius:3,background:up?"#dcfce7":"#fee2e2",color:up?"#16a34a":"#dc2626"}}>{pct>=0?"▲":"▼"}{Math.abs(pct).toFixed(1)}%</span>;
+    };
+
+    // Platform
+    const PCOLORS=["#e1306c","#833ab4","#1877f2","#f59e0b","#4ade80","#3b5998","#fd1d1d","#64748b"];
+    const platRaw = monthlyData?.plat||[];
+    const placMap={};
+    platRaw.forEach(row=>{ const k=`${row.publisher_platform}-${row.platform_position}`; placMap[k]=(placMap[k]||0)+gPurch(row.actions); });
+    const placData=Object.entries(placMap).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,v],i)=>({label:k,value:v,color:PCOLORS[i]||"#94a3b8"}));
+    const platMap={};
+    platRaw.forEach(row=>{ const k=row.publisher_platform; platMap[k]=(platMap[k]||0)+gPurch(row.actions); });
+    const platData=Object.entries(platMap).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([k,v],i)=>({label:k.charAt(0).toUpperCase()+k.slice(1),value:v,color:PCOLORS[i]||"#94a3b8"}));
+
+    // Age & region
+    const ACOLORS=["#60a5fa","#a78bfa","#f59e0b","#f87171","#4ade80","#94a3b8"];
+    const RCOLORS=["#e8572a","#3b82f6","#a78bfa","#f59e0b","#4ade80","#f87171","#94a3b8"];
+    const ageData=(monthlyData?.age||[]).map((row,i)=>({label:row.age,value:gPurch(row.actions),color:ACOLORS[i]||"#94a3b8"})).filter(d=>d.value>0).sort((a,b)=>b.value-a.value).slice(0,6);
+    const regionData=(monthlyData?.region||[]).map((row,i)=>({label:row.region,value:gClks(row.outbound_clicks),color:RCOLORS[i]||"#94a3b8"})).filter(d=>d.value>0).sort((a,b)=>b.value-a.value).slice(0,7);
+
+    // Campaign prev map
+    const prevCampMap={};
+    monthlyPrevCamps.forEach(c=>{prevCampMap[c.campaign_id]=c;});
+
+    // Objectives check
+    const objOk = conclObj.facturacion && conclObj.roas && conclObj.cpa &&
+      (cv.facturacion||0)>=parseFloat(conclObj.facturacion) &&
+      roas>=parseFloat(conclObj.roas) &&
+      cpa>0 && cpa<=parseFloat(conclObj.cpa);
+
+    const hs2={border:"1px solid #e5e7eb",padding:"7px 8px",fontSize:9,color:"#888",background:"#f9fafb",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em",textAlign:"left"};
+    const cs2={border:"1px solid #f3f4f6",padding:"7px 8px",fontSize:10,color:"#333",verticalAlign:"middle"};
+
+    return (
+      <div id="monthly-pdf-target" style={{background:"#fff",color:"#111",fontFamily:"Arial,sans-serif",padding:"28px 32px",minWidth:640}}>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",borderBottom:"3px solid #e8572a",paddingBottom:14,marginBottom:22}}>
+          <div>
+            {account.logo_url&&<img src={account.logo_url} alt="logo" style={{height:40,objectFit:"contain",marginBottom:6,display:"block"}}/>}
+            <div style={{fontSize:22,fontWeight:800}}><span style={{color:"#111"}}>Ecom</span><span style={{color:"#e8572a"}}>Boost</span><span style={{color:"#aaa",fontWeight:400,fontSize:12}}> analytics</span></div>
+            <div style={{fontSize:11,color:"#777",marginTop:3}}>Reporte Mensual · Meta Ads</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:14,fontWeight:700,color:account.color||"#e8572a"}}>{account.name}</div>
+            {account.client_name&&<div style={{fontSize:11,color:"#555",marginTop:2}}>{account.client_name}</div>}
+            <div style={{fontSize:11,color:"#888",marginTop:2}}>{dateFrom} → {dateTo}</div>
+            <div style={{fontSize:10,color:"#bbb",marginTop:1}}>Generado: {new Date().toLocaleDateString("es-AR")}</div>
+          </div>
+        </div>
+
+        {/* S1 KPIs */}
+        {monthlySel.includes("m_kpis")&&(
+          <div style={{marginBottom:22}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>📊 Métricas Importantes</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+              {[
+                {l:"Inversión",    v:`$${spend.toLocaleString()}`,       b:vBadge(spend,prevSpend)},
+                {l:"ROAS",         v:`${roas.toFixed(2)}x`,              b:vBadge(roas,prevRoas)},
+                {l:"Compras",      v:purchases.toLocaleString(),          b:vBadge(purchases,prevPurch)},
+                {l:"Costo/Compra", v:`$${cpa.toFixed(2)}`,               b:vBadge(cpa,prevCpa,true)},
+                {l:"Add to Cart",  v:atc.toLocaleString(),               b:vBadge(atc,prevAtc)},
+                {l:"Tasa Conv.",   v:`${convRate.toFixed(2)}%`,          b:vBadge(convRate,prevConvRate)},
+                {l:"Clics Enlace", v:clicks.toLocaleString(),            b:vBadge(clicks,prevClks)},
+                {l:"CPM",          v:`$${cpm.toFixed(2)}`,               b:vBadge(cpm,prevCpm,true)},
+              ].map(({l,v,b})=>(
+                <div key={l} style={{border:"1px solid #e5e7eb",borderRadius:8,padding:"11px 12px",background:"#fafafa"}}>
+                  <div style={{fontSize:8,color:"#aaa",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>{l}</div>
+                  <div style={{fontSize:18,fontWeight:800,color:"#111",fontFamily:"monospace",marginBottom:4}}>{v}</div>
+                  <div>{b||<span style={{fontSize:8,color:"#ddd"}}>vs período ant.</span>}</div>
+                  <div style={{fontSize:7,color:"#ccc",marginTop:2}}>{dateFrom} → {dateTo}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* S2 Charts */}
+        {monthlySel.includes("m_charts")&&(account.daily||[]).length>0&&(
+          <div style={{marginBottom:22}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>📈 Gráficos de Evolución</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:"12px 10px"}}>
+                <div style={{fontSize:10,fontWeight:600,color:"#555",marginBottom:6}}>Inversión & Compras</div>
+                <ResponsiveContainer width="100%" height={140}>
+                  <LineChart data={account.daily} margin={{top:4,right:4,bottom:0,left:0}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                    <XAxis dataKey="day" tick={{fontSize:8,fill:"#aaa"}} axisLine={false} tickLine={false}/>
+                    <YAxis yAxisId="l" tick={{fontSize:8,fill:"#aaa"}} axisLine={false} tickLine={false} width={36}/>
+                    <YAxis yAxisId="r" orientation="right" tick={{fontSize:8,fill:"#aaa"}} axisLine={false} tickLine={false} width={22}/>
+                    <Tooltip contentStyle={{fontSize:10}}/>
+                    <Line yAxisId="l" type="monotone" dataKey="spend"   stroke="#e8572a" strokeWidth={2} dot={false} name="Inversión"/>
+                    <Line yAxisId="r" type="monotone" dataKey="revenue" stroke="#4ade80" strokeWidth={2} dot={false} name="Valor Compras"/>
+                  </LineChart>
+                </ResponsiveContainer>
+                <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:4}}>
+                  <span style={{fontSize:8,color:"#e8572a",fontWeight:700}}>● Inversión</span>
+                  <span style={{fontSize:8,color:"#4ade80",fontWeight:700}}>● Valor Compras</span>
+                </div>
+              </div>
+              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:"12px 10px"}}>
+                <div style={{fontSize:10,fontWeight:600,color:"#555",marginBottom:6}}>Evolución ROAS</div>
+                <ResponsiveContainer width="100%" height={140}>
+                  <BarChart data={account.daily} margin={{top:4,right:4,bottom:0,left:0}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                    <XAxis dataKey="day" tick={{fontSize:8,fill:"#aaa"}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fontSize:8,fill:"#aaa"}} axisLine={false} tickLine={false} width={24}/>
+                    <Tooltip contentStyle={{fontSize:10}}/>
+                    <Bar dataKey="roas" fill="#e8572a" opacity={0.85} radius={[3,3,0,0]} name="ROAS"/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* S3 Platform */}
+        {monthlySel.includes("m_platform")&&(
+          <div style={{marginBottom:22}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>🍩 Ventas por Plataforma</div>
+            {(placData.length>0||platData.length>0)?(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,border:"1px solid #e5e7eb",borderRadius:7,padding:16}}>
+                <DonutChart data={placData} title="Por Placement" size={110}/>
+                <DonutChart data={platData} title="Por Plataforma" size={110}/>
+              </div>
+            ):(
+              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:16,textAlign:"center",color:"#bbb",fontSize:11}}>Cargá datos comparativos para ver este gráfico</div>
+            )}
+          </div>
+        )}
+
+        {/* S4 Campaigns */}
+        {monthlySel.includes("m_campaigns")&&(account.campaigns||[]).length>0&&(
+          <div style={{marginBottom:22}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>🎯 Resultados a Nivel Campañas</div>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr>{["Campaña","Gasto","Compras","ROAS","Conv. Value","LPV"].map(h=><th key={h} style={hs2}>{h}</th>)}</tr></thead>
+              <tbody>
+                {account.campaigns.map((c,i)=>{
+                  const pc=prevCampMap[c.id];
+                  const pSp=parseFloat(pc?.spend||0);
+                  const pPu=gPurch(pc?.actions);
+                  const pRv=gVal(pc?.action_values);
+                  const pRo=pSp>0?pRv/pSp:0;
+                  return(
+                    <tr key={c.id} style={{background:i%2===0?"#fff":"#fafafa"}}>
+                      <td style={{...cs2,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{c.name}</td>
+                      <td style={cs2}><div style={{fontWeight:700}}>${c.spend.toLocaleString()}</div>{vBadge(c.spend,pSp)}</td>
+                      <td style={cs2}><div style={{fontWeight:700}}>{c.conversions}</div>{vBadge(c.conversions,pPu)}</td>
+                      <td style={{...cs2,color:c.roas>=(goals.roas||3)?"#16a34a":"#dc2626",fontWeight:700}}><div>{c.roas.toFixed(2)}x</div>{vBadge(c.roas,pRo)}</td>
+                      <td style={cs2}>${c.revenue.toLocaleString()}</td>
+                      <td style={{...cs2,color:"#bbb"}}>—</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* S5 Creatives */}
+        {monthlySel.includes("m_creatives")&&(account.creatives||[]).length>0&&(
+          <div style={{marginBottom:22}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>🎨 Resultados a Nivel Creativos</div>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr>{["","Creativo","CTR Único","ROAS","Compras","Gasto"].map(h=><th key={h} style={hs2}>{h}</th>)}</tr></thead>
+              <tbody>
+                {[...account.creatives].sort((a,b)=>b.roas-a.roas).slice(0,10).map((c,i)=>(
+                  <tr key={c.id} style={{background:i%2===0?"#fff":"#fafafa"}}>
+                    <td style={{...cs2,width:36,padding:4}}>
+                      {c.thumbnailUrl?<img src={c.thumbnailUrl} alt="" style={{width:32,height:32,objectFit:"cover",borderRadius:4,display:"block"}}/>:<div style={{width:32,height:32,background:"#f3f4f6",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>{c.type==="VIDEO"?"🎬":"📷"}</div>}
+                    </td>
+                    <td style={{...cs2,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{c.name}</td>
+                    <td style={cs2}>{c.ctr.toFixed(2)}%</td>
+                    <td style={{...cs2,color:c.roas>=(goals.roas||3)?"#16a34a":"#dc2626",fontWeight:700}}>{c.roas.toFixed(2)}x</td>
+                    <td style={cs2}>{c.conversions}</td>
+                    <td style={cs2}>${c.spend.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* S6 Demographics */}
+        {monthlySel.includes("m_demo")&&(
+          <div style={{marginBottom:22}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>👥 Demografía</div>
+            {(ageData.length>0||regionData.length>0)?(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,border:"1px solid #e5e7eb",borderRadius:7,padding:16}}>
+                <DonutChart data={ageData} title="Edades que más compraron" size={110}/>
+                <DonutChart data={regionData} title="Ubicaciones por clics" size={110}/>
+              </div>
+            ):(
+              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:16,textAlign:"center",color:"#bbb",fontSize:11}}>Cargá datos comparativos para ver demografía</div>
+            )}
+          </div>
+        )}
+
+        {/* S7 Conclusions */}
+        {monthlySel.includes("m_conclusions")&&(conclAnalisis||conclTrabajo.some(t=>t.trim())||conclObj.facturacion||conclProximo.some(t=>t.trim()))&&(
+          <div style={{marginBottom:22}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>📝 Conclusiones</div>
+            {conclAnalisis.trim()&&<div style={{marginBottom:10,border:"1px solid #e5e7eb",borderRadius:7,padding:"11px 13px"}}><div style={{fontSize:8,fontWeight:700,color:"#aaa",textTransform:"uppercase",marginBottom:4}}>Análisis Superficial</div><div style={{fontSize:11,color:"#333",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{conclAnalisis}</div></div>}
+            {conclTrabajo.some(t=>t.trim())&&<div style={{marginBottom:10,border:"1px solid #e5e7eb",borderRadius:7,padding:"11px 13px"}}><div style={{fontSize:8,fontWeight:700,color:"#aaa",textTransform:"uppercase",marginBottom:6}}>Trabajo Realizado en el Mes</div>{conclTrabajo.filter(t=>t.trim()).map((t,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:3,fontSize:11,color:"#333"}}><span style={{color:"#e8572a",fontWeight:700}}>✓</span><span>{t}</span></div>)}</div>}
+            {(conclObj.facturacion||conclObj.roas||conclObj.cpa)&&(
+              <div style={{marginBottom:10,border:"1px solid #e5e7eb",borderRadius:7,padding:"11px 13px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <div style={{fontSize:8,fontWeight:700,color:"#aaa",textTransform:"uppercase"}}>Objetivo Mensual</div>
+                  {objOk&&<span style={{fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:4,background:"#dcfce7",color:"#16a34a",border:"1px solid #bbf7d0"}}>✓ OBJETIVO CUMPLIDO</span>}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+                  {[{l:"Facturación",obj:conclObj.facturacion,act:cv.facturacion||0,fmt:v=>`$${parseFloat(v).toLocaleString()}`,inv:false},{l:"ROAS",obj:conclObj.roas,act:roas,fmt:v=>`${parseFloat(v).toFixed(2)}x`,inv:false},{l:"CPA",obj:conclObj.cpa,act:cpa,fmt:v=>`$${parseFloat(v).toFixed(2)}`,inv:true}].filter(x=>x.obj).map(({l,obj,act,fmt,inv})=>{
+                    const ok=inv?act<=parseFloat(obj):act>=parseFloat(obj);
+                    return <div key={l} style={{border:`1px solid ${ok?"#bbf7d0":"#fecaca"}`,borderRadius:5,padding:"8px 10px",background:ok?"#f0fdf4":"#fef2f2"}}><div style={{fontSize:8,color:"#aaa",marginBottom:3}}>{l}</div><div style={{fontSize:14,fontWeight:700,color:ok?"#15803d":"#dc2626",fontFamily:"monospace"}}>{fmt(act)}</div><div style={{fontSize:8,color:"#aaa",marginTop:2}}>Meta: {fmt(obj)}</div></div>;
+                  })}
+                </div>
+              </div>
+            )}
+            {conclProximo.some(t=>t.trim())&&<div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:"11px 13px"}}><div style={{fontSize:8,fontWeight:700,color:"#aaa",textTransform:"uppercase",marginBottom:6}}>Acciones Mes Próximo</div>{conclProximo.filter(t=>t.trim()).map((t,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:3,fontSize:11,color:"#333"}}><span style={{color:"#3b82f6",fontWeight:700}}>→</span><span>{t}</span></div>)}</div>}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div style={{borderTop:"1px solid #e5e7eb",marginTop:18,paddingTop:12,display:"flex",justifyContent:"space-between",fontSize:10,color:"#ccc"}}>
+          <span>EcomBoost Analytics · Reporte Mensual · Confidencial</span>
+          <span>{new Date().toLocaleDateString("es-AR")}</span>
+        </div>
+      </div>
+    );
   }
 
   const cs = { border:"1px solid #e5e7eb", padding:"7px 10px", fontSize:11, color:"#333" };
@@ -2258,16 +2849,225 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
     );
   }
 
+  // ─── Saved Reports Logic ─────────────────────────────────────────────────────
+
+  // Load on mount + save-on-unmount
+  useEffect(()=>{
+    reportStore.loadReports().then(setSavedReports).catch(()=>{});
+    return ()=>{
+      clearTimeout(autosaveTimerRef.current);
+      if(activeIdRef.current&&buildConfigRef.current)
+        reportStore.updateReport(activeIdRef.current,buildConfigRef.current()).catch(()=>{});
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  // Autosave with 1s debounce
+  useEffect(()=>{
+    if(skipAutosaveRef.current||!activeIdRef.current)return;
+    setSaveStatus("saving");
+    clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current=setTimeout(async()=>{
+      try{
+        await reportStore.updateReport(activeIdRef.current,buildConfigRef.current());
+        setSavedReports(await reportStore.loadReports());
+        setSaveStatus("saved");
+      }catch{setSaveStatus("idle");}
+    },1000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[sel,monthlySel,reportMode,note,customSummary,conclAnalisis,conclTrabajo,conclProximo,conclObj,dateFrom,dateTo]);
+
+  function buildConfig(){ return buildConfigRef.current(); }
+
+  function applyConfig(c){
+    skipAutosaveRef.current=true;
+    if(c.sel)setSel(c.sel);
+    if(c.monthlySel)setMonthlySel(c.monthlySel);
+    if(c.reportMode)setReportMode(c.reportMode);
+    if(c.note!==undefined)setNote(c.note);
+    if(c.customSummary!==undefined)setCustomSummary(c.customSummary);
+    if(c.conclAnalisis!==undefined)setConclAnalisis(c.conclAnalisis);
+    if(c.conclTrabajo)setConclTrabajo(c.conclTrabajo);
+    if(c.conclProximo)setConclProximo(c.conclProximo);
+    if(c.conclObj)setConclObj(c.conclObj);
+    if(c.dateFrom&&c.dateTo)onDateRangeChange?.({preset:"custom",from:c.dateFrom,to:c.dateTo});
+    setTimeout(()=>{ skipAutosaveRef.current=false; },200);
+  }
+
+  async function handleSave(){
+    if(!activeIdRef.current)return;
+    setSaveStatus("saving");
+    clearTimeout(autosaveTimerRef.current);
+    try{
+      await reportStore.updateReport(activeIdRef.current,buildConfig());
+      setSavedReports(await reportStore.loadReports());
+      setSaveStatus("saved");
+    }catch{ setSaveStatus("idle"); toast("Error al guardar","error"); }
+  }
+
+  async function handleConfirmCreate(){
+    const name=nameInput.trim();
+    if(!name){setNameError("El nombre es obligatorio");return;}
+    let finalName=name;
+    if(savedReports.some(r=>r.name===finalName)){
+      let n=2;
+      while(savedReports.some(r=>r.name===`${name} (${n})`))n++;
+      finalName=`${name} (${n})`;
+    }
+    try{
+      const r=await reportStore.createReport(finalName,buildConfig());
+      setSavedReports(await reportStore.loadReports());
+      setActiveReportId(r.id);
+      setActiveReportName(r.name);
+      setSaveStatus("saved");
+      setShowNameModal(false);
+      setNameInput("");
+    }catch(e){
+      if(e?.name==="QuotaExceededError")toast("Almacenamiento lleno. Eliminá reportes para continuar.","error");
+      else toast("Error al crear el reporte","error");
+    }
+  }
+
+  async function handleOpenReport(r){
+    applyConfig(r.config||{});
+    setActiveReportId(r.id);
+    setActiveReportName(r.name);
+    setSaveStatus("saved");
+  }
+
+  async function handleDuplicate(id){
+    try{
+      await reportStore.duplicateReport(id);
+      setSavedReports(await reportStore.loadReports());
+      toast("Reporte duplicado");
+    }catch{ toast("Error al duplicar","error"); }
+  }
+
+  async function handleDelete(id){
+    await reportStore.deleteReport(id);
+    if(activeIdRef.current===id){setActiveReportId(null);setActiveReportName("");setSaveStatus("idle");}
+    setSavedReports(await reportStore.loadReports());
+    setDeleteConfirmId(null);
+    toast("Reporte eliminado","warn");
+  }
+
+  async function handleRenameConfirm(){
+    const name=renameInput.trim();
+    if(!name){setRenameId(null);return;}
+    try{
+      await reportStore.renameReport(renameId,name);
+      if(activeIdRef.current===renameId)setActiveReportName(name);
+      setSavedReports(await reportStore.loadReports());
+      setRenameId(null);
+    }catch{ toast("Error al renombrar","error"); }
+  }
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{display:"flex",height:"calc(100vh - 56px)",overflow:"hidden",fontFamily:"'Inter',system-ui,sans-serif"}}>
-      {/* Left panel */}
+    <div style={{position:"relative",display:"flex",height:"calc(100vh - 56px)",overflow:"hidden",fontFamily:"'Inter',system-ui,sans-serif"}}>
+
+      {/* ── Name modal ── */}
+      {showNameModal&&(
+        <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.72)",zIndex:20,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:T.bg1,border:`1px solid ${T.border2}`,borderRadius:12,padding:24,width:340,boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}}>Nombre del reporte</div>
+            <div style={{fontSize:12,color:T.textMuted,marginBottom:16}}>Elegí un nombre para identificarlo</div>
+            <input
+              autoFocus
+              value={nameInput}
+              onChange={e=>{setNameInput(e.target.value);setNameError("");}}
+              onKeyDown={e=>{if(e.key==="Enter")handleConfirmCreate();if(e.key==="Escape")setShowNameModal(false);}}
+              placeholder="Ej: Reporte Junio 2026"
+              style={{width:"100%",background:T.bg2,border:`1px solid ${nameError?"#f87171":T.border2}`,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:nameError?6:16}}
+            />
+            {nameError&&<div style={{fontSize:11,color:"#f87171",marginBottom:16}}>{nameError}</div>}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setShowNameModal(false)} style={{flex:1,padding:"10px 0",background:"none",border:`1px solid ${T.border2}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Cancelar</button>
+              <button onClick={handleConfirmCreate} style={{flex:1,padding:"10px 0",background:"#e8572a",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>Crear</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirm ── */}
+      {deleteConfirmId&&(
+        <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.72)",zIndex:20,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:T.bg1,border:`1px solid ${T.border2}`,borderRadius:12,padding:24,width:320,boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:8}}>¿Eliminar reporte?</div>
+            <div style={{fontSize:13,color:T.textMuted,marginBottom:20}}>
+              El reporte <b style={{color:T.text}}>"{savedReports.find(r=>r.id===deleteConfirmId)?.name}"</b> se eliminará permanentemente.
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setDeleteConfirmId(null)} style={{flex:1,padding:"10px 0",background:"none",border:`1px solid ${T.border2}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Cancelar</button>
+              <button onClick={()=>handleDelete(deleteConfirmId)} style={{flex:1,padding:"10px 0",background:"#dc2626",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Saved reports sidebar ── */}
+      <div style={{width:220,background:T.bg1,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"14px 12px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <div style={{fontSize:12,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>Reportes guardados</div>
+          <button
+            onClick={()=>{setNameInput("");setNameError("");setShowNameModal(true);}}
+            style={{padding:"4px 10px",background:"#e8572a",border:"none",borderRadius:6,color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",flexShrink:0}}
+          >+ Nuevo</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:8}}>
+          {savedReports.length===0?(
+            <div style={{padding:"28px 12px",textAlign:"center",color:T.textFaint,fontSize:11,lineHeight:1.6}}>
+              <div style={{fontSize:22,marginBottom:8,opacity:0.3}}>📄</div>
+              Creá tu primer reporte con "+ Nuevo"
+            </div>
+          ):savedReports.map(r=>{
+            const isActive=r.id===activeReportId;
+            return(
+              <div key={r.id} style={{borderRadius:8,border:`1px solid ${isActive?"#e8572a55":T.border}`,background:isActive?"#e8572a08":T.bg2,marginBottom:6,overflow:"hidden",transition:"border-color .15s"}}>
+                {renameId===r.id?(
+                  <div style={{padding:"8px 10px"}}>
+                    <input
+                      autoFocus
+                      value={renameInput}
+                      onChange={e=>setRenameInput(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter")handleRenameConfirm();if(e.key==="Escape")setRenameId(null);}}
+                      onBlur={handleRenameConfirm}
+                      style={{width:"100%",background:T.bg,border:`1px solid ${T.border2}`,borderRadius:5,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                    />
+                  </div>
+                ):(
+                  <div onClick={()=>handleOpenReport(r)} style={{padding:"8px 10px 4px",cursor:"pointer"}}>
+                    <div style={{fontSize:12,fontWeight:600,color:isActive?"#e8572a":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
+                    <div style={{fontSize:9,color:T.textFaint,marginTop:2}}>
+                      {new Date(r.updated_at).toLocaleDateString("es-AR",{day:"2-digit",month:"short",year:"numeric"})}
+                    </div>
+                  </div>
+                )}
+                <div style={{display:"flex",borderTop:`1px solid ${T.border}`,padding:"2px 4px",gap:0}}>
+                  <button title="Abrir" onClick={()=>handleOpenReport(r)} style={{flex:1,background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:10,padding:"4px 0",fontFamily:"inherit"}}>Abrir</button>
+                  <button title="Renombrar" onClick={e=>{e.stopPropagation();setRenameId(r.id);setRenameInput(r.name);}} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:12,padding:"4px 6px",lineHeight:1}}>✏</button>
+                  <button title="Duplicar" onClick={e=>{e.stopPropagation();handleDuplicate(r.id);}} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:12,padding:"4px 6px",lineHeight:1}}>⧉</button>
+                  <button title="Eliminar" onClick={e=>{e.stopPropagation();setDeleteConfirmId(r.id);}} style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:12,padding:"4px 6px",lineHeight:1}}>✕</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Left panel (config) ── */}
       <div style={{width:280,background:T.bg1,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",flexShrink:0,overflowY:"auto"}}>
         <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{fontSize:13,fontWeight:700,color:T.text}}>Constructor de Reporte</div>
-          <div style={{fontSize:10,color:T.textMuted,marginTop:2}}>{account.name} · Armá tu PDF a medida</div>
+          <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{activeReportName||"Constructor de Reporte"}</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+            <div style={{fontSize:10,color:T.textMuted,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{account.name} · PDF a medida</div>
+            {activeReportId&&<span style={{fontSize:9,fontWeight:600,flexShrink:0,color:saveStatus==="saving"?"#f59e0b":saveStatus==="saved"?"#4ade80":T.textFaint}}>
+              {saveStatus==="saving"?"Guardando...":saveStatus==="saved"?"Guardado ✓":""}
+            </span>}
+          </div>
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"12px 12px"}}>
-          {/* Date range */}
+          {/* Date range (shared) */}
           <div style={{marginBottom:14}}>
             <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:7}}>Período</div>
             <div style={{display:"flex",gap:8}}>
@@ -2279,14 +3079,22 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
               ))}
             </div>
           </div>
+          {/* Load comparison data */}
+          <div style={{marginBottom:14}}>
+            <button onClick={fetchMonthlyData} disabled={monthlyLoading||!account.meta_token} style={{width:"100%",padding:"9px 0",background:account.meta_token?"#3b82f622":"#1a1a2200",border:`1px solid ${account.meta_token?"#3b82f644":T.border2}`,borderRadius:7,color:account.meta_token?"#60a5fa":T.textFaint,cursor:account.meta_token?"pointer":"not-allowed",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
+              {monthlyLoading?"⏳ Cargando...":monthlyData?"↻ Actualizar datos comparativos":"⬇ Cargar datos comparativos"}
+            </button>
+            {monthlyData&&<div style={{fontSize:10,color:T.ok.text,marginTop:4,textAlign:"center"}}>✓ Datos cargados</div>}
+            {!account.meta_token&&<div style={{fontSize:10,color:T.textFaint,marginTop:4,textAlign:"center"}}>Conectá Meta API en Ajustes</div>}
+          </div>
           {/* Sections */}
           <div style={{marginBottom:14}}>
             <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:7}}>Secciones del reporte</div>
-            {PDF_BLOCKS.map(b=>{
-              const on=sel.includes(b.id);
+            {MONTHLY_BLOCKS.map(b=>{
+              const on=monthlySel.includes(b.id);
               return (
-                <div key={b.id} onClick={()=>toggle(b.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:7,border:`1px solid ${on?"#e8572a40":T.border}`,background:on?"#e8572a0d":T.bg2,cursor:"pointer",marginBottom:4,transition:"all 0.12s"}}>
-                  <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${on?"#e8572a":T.border2}`,background:on?"#e8572a":"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:8,color:"#fff"}}>{on?"✓":""}</div>
+                <div key={b.id} onClick={()=>setMonthlySel(s=>s.includes(b.id)?s.filter(x=>x!==b.id):[...s,b.id])} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:7,border:`1px solid ${on?"#a78bfa40":T.border}`,background:on?"#a78bfa0d":T.bg2,cursor:"pointer",marginBottom:4}}>
+                  <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${on?"#a78bfa":T.border2}`,background:on?"#a78bfa":"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:8,color:"#fff"}}>{on?"✓":""}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:11,fontWeight:on?600:400,color:on?T.text:T.textMuted}}>{b.label}</div>
                     <div style={{fontSize:9,color:T.textFaint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.desc}</div>
@@ -2295,52 +3103,69 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
               );
             })}
           </div>
-          {/* Order */}
-          {sel.length > 0 && (
+          {/* Conclusiones editor */}
+          {monthlySel.includes("m_conclusions")&&(
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:7}}>Orden en el PDF</div>
-              {sel.map((id,idx)=>{
-                const b=PDF_BLOCKS.find(x=>x.id===id);
-                return (
-                  <div key={id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:T.bg2,border:`1px solid ${T.border}`,borderRadius:6,marginBottom:4}}>
-                    <span style={{fontSize:10,color:T.textFaint,minWidth:16,textAlign:"center"}}>{idx+1}</span>
-                    <span style={{flex:1,fontSize:10,color:T.textMuted}}>{b?.label}</span>
-                    <button onClick={e=>{e.stopPropagation();moveUp(idx);}} style={{background:"none",border:`1px solid ${T.border2}`,borderRadius:3,color:T.textMuted,cursor:"pointer",padding:"1px 5px",fontSize:10}}>↑</button>
-                    <button onClick={e=>{e.stopPropagation();moveDn(idx);}} style={{background:"none",border:`1px solid ${T.border2}`,borderRadius:3,color:T.textMuted,cursor:"pointer",padding:"1px 5px",fontSize:10}}>↓</button>
+              <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Conclusiones</div>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:T.textDim,marginBottom:4}}>Análisis superficial</div>
+                <textarea value={conclAnalisis} onChange={e=>setConclAnalisis(e.target.value)} placeholder="Escribe el análisis del mes..." style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:6,color:T.text,padding:"7px 9px",fontSize:11,minHeight:72,resize:"vertical",boxSizing:"border-box",outline:"none",fontFamily:"inherit"}}/>
+              </div>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:T.textDim,marginBottom:4}}>Trabajo realizado en el mes</div>
+                {conclTrabajo.map((t,i)=>(
+                  <div key={i} style={{display:"flex",gap:4,marginBottom:4}}>
+                    <input value={t} onChange={e=>{const n=[...conclTrabajo];n[i]=e.target.value;setConclTrabajo(n);}} placeholder={`Ítem ${i+1}...`} style={{flex:1,background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:5,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"inherit"}}/>
+                    <button onClick={()=>setConclTrabajo(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:`1px solid ${T.border2}`,borderRadius:5,color:"#f87171",cursor:"pointer",padding:"0 7px",fontSize:13}}>✕</button>
                   </div>
-                );
-              })}
-            </div>
-          )}
-          {/* Note */}
-          <div style={{marginBottom:12}}>
-            <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Nota para el cliente</div>
-            <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Comentario adicional..." style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:11,minHeight:60,resize:"vertical",boxSizing:"border-box",outline:"none"}}/>
-          </div>
-          {/* Custom summary */}
-          {sel.includes("custom_summary") && (
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Texto del resumen personalizado</div>
-              <textarea value={customSummary} onChange={e=>setCustomSummary(e.target.value)} placeholder="Escribí el contenido del resumen personalizado que aparecerá en el PDF..." style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:11,minHeight:100,resize:"vertical",boxSizing:"border-box",outline:"none"}}/>
+                ))}
+                <button onClick={()=>setConclTrabajo(p=>[...p,""])} style={{width:"100%",padding:"5px 0",background:"none",border:`1px dashed ${T.border2}`,borderRadius:5,color:T.textDim,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>+ Agregar ítem</button>
+              </div>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:T.textDim,marginBottom:4}}>Objetivo mensual</div>
+                {[["facturacion","Facturación $"],["roas","ROAS x"],["cpa","CPA $"]].map(([k,l])=>(
+                  <div key={k} style={{marginBottom:6}}>
+                    <div style={{fontSize:9,color:T.textFaint,marginBottom:2}}>{l}</div>
+                    <input type="number" value={conclObj[k]} onChange={e=>setConclObj(p=>({...p,[k]:e.target.value}))} style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:5,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div style={{fontSize:10,color:T.textDim,marginBottom:4}}>Acciones mes próximo</div>
+                {conclProximo.map((t,i)=>(
+                  <div key={i} style={{display:"flex",gap:4,marginBottom:4}}>
+                    <input value={t} onChange={e=>{const n=[...conclProximo];n[i]=e.target.value;setConclProximo(n);}} placeholder={`Acción ${i+1}...`} style={{flex:1,background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:5,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"inherit"}}/>
+                    <button onClick={()=>setConclProximo(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:`1px solid ${T.border2}`,borderRadius:5,color:"#f87171",cursor:"pointer",padding:"0 7px",fontSize:13}}>✕</button>
+                  </div>
+                ))}
+                <button onClick={()=>setConclProximo(p=>[...p,""])} style={{width:"100%",padding:"5px 0",background:"none",border:`1px dashed ${T.border2}`,borderRadius:5,color:T.textDim,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>+ Agregar acción</button>
+              </div>
             </div>
           )}
         </div>
-        {/* Actions */}
         <div style={{padding:10,borderTop:`1px solid ${T.border}`,display:"flex",flexDirection:"column",gap:8}}>
-          <button onClick={()=>setPreview(p=>!p)} style={{padding:"8px 0",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:12}}>
-            {preview?"◂ Ocultar preview":"▸ Ver preview"}
+          {activeReportId
+            ?<button onClick={handleSave} disabled={saveStatus==="saving"} style={{padding:"8px 0",background:"#e8572a11",border:`1px solid #e8572a44`,borderRadius:7,color:"#e8572a",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",opacity:saveStatus==="saving"?0.6:1}}>
+               {saveStatus==="saving"?"Guardando...":"Guardar"}
+             </button>
+            :<button onClick={()=>{setNameInput("");setNameError("");setShowNameModal(true);}} style={{padding:"8px 0",background:"#e8572a11",border:`1px solid #e8572a44`,borderRadius:7,color:"#e8572a",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
+               + Crear reporte
+             </button>
+          }
+          <button onClick={()=>setMPreview(p=>!p)} style={{padding:"8px 0",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>
+            {mPreview?"◂ Ocultar preview":"▸ Ver preview"}
           </button>
-          <button onClick={generatePDF} disabled={generating||sel.length===0} style={{padding:"11px 0",background:sel.length===0?T.bg2:"#e8572a",border:"none",borderRadius:7,color:sel.length===0?T.textFaint:"#fff",cursor:sel.length===0?"not-allowed":"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            {generating?"⏳ Generando PDF...":"⬇ Descargar PDF"}
+          <button onClick={generateMonthlyPDF} disabled={mGenerating||monthlySel.length===0} style={{padding:"11px 0",background:monthlySel.length===0?T.bg2:"#a78bfa",border:"none",borderRadius:7,color:monthlySel.length===0?T.textFaint:"#fff",cursor:monthlySel.length===0?"not-allowed":"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:"inherit"}}>
+            {mGenerating?"⏳ Generando PDF...":"⬇ Descargar Reporte Mensual"}
           </button>
         </div>
       </div>
 
-      {/* Right: preview */}
+      {/* ── Right: preview ── */}
       <div style={{flex:1,overflowY:"auto",padding:24,background:T.bg,display:"flex",flexDirection:"column",alignItems:"center"}}>
-        {!preview
+        {!mPreview
           ? <div style={{color:T.textFaint,marginTop:80,textAlign:"center"}}><div style={{fontSize:32,marginBottom:12,opacity:0.2}}>⊟</div><div style={{fontSize:13}}>Hacé clic en "Ver preview" para previsualizar el reporte</div></div>
-          : <div style={{maxWidth:740,width:"100%",boxShadow:"0 0 50px rgba(0,0,0,0.3)",borderRadius:4}}><PDFContent/></div>
+          : <div style={{maxWidth:740,width:"100%",boxShadow:"0 0 50px rgba(0,0,0,0.3)",borderRadius:4}}><MonthlyPDFContent/></div>
         }
       </div>
     </div>
@@ -2413,14 +3238,344 @@ function ClientPortal({account, tasks, currentUser, toast}) {
   );
 }
 
+// ─── RENTABILIDAD MODULE ─────────────────────────────────────────────────────
+function RentabilidadModule({ account }) {
+  const T = useT();
+  const accountId = account?.id || "global";
+  const LS = `eb_profit_v2_${accountId}`;
+  const load = () => { try { return JSON.parse(localStorage.getItem(LS)||"{}"); } catch { return {}; } };
+  const s = useMemo(load, [LS]);
+
+  // A — Costos Variables (%)
+  const [cogs,    setCogs]    = useState(s.cogs    ?? "");
+  const [envio,   setEnvio]   = useState(s.envio   ?? "");
+  const [transac, setTransac] = useState(s.transac ?? "");
+  const [ingBrut, setIngBrut] = useState(s.ingBrut ?? "");
+  const [devoluc, setDevoluc] = useState(s.devoluc ?? "");
+  const [agencia, setAgencia] = useState(s.agencia ?? "");
+  const [otrosV,  setOtrosV]  = useState(s.otrosV  ?? "");
+
+  // B — Costos Fijos ($)
+  const [empls,  setEmpls]  = useState(s.empls  ?? "");
+  const [provs,  setProvs]  = useState(s.provs  ?? "");
+  const [herrs,  setHerrs]  = useState(s.herrs  ?? "");
+  const [logis,  setLogis]  = useState(s.logis  ?? "");
+  const [otrosF, setOtrosF] = useState(s.otrosF ?? "");
+
+  // D — Simulator axes
+  const [invRows,  setInvRows]  = useState(s.invRows  ?? [1000000,1500000,2000000,2500000,3000000]);
+  const [roasCols, setRoasCols] = useState(s.roasCols ?? [5,6,7,8,9,10,11,12,13,14]);
+
+  // E — P&G
+  const [pgInv,  setPgInv]  = useState(s.pgInv  ?? "");
+  const [pgRoas, setPgRoas] = useState(s.pgRoas ?? "");
+
+  // Persist
+  useEffect(() => {
+    try { localStorage.setItem(LS, JSON.stringify({cogs,envio,transac,ingBrut,devoluc,agencia,otrosV,empls,provs,herrs,logis,otrosF,invRows,roasCols,pgInv,pgRoas})); } catch {}
+  }, [cogs,envio,transac,ingBrut,devoluc,agencia,otrosV,empls,provs,herrs,logis,otrosF,invRows,roasCols,pgInv,pgRoas]);
+
+  const p    = v => parseFloat(v)||0;
+  const fmt$ = v => `$${Math.round(v).toLocaleString("es-AR")}`;
+  const fmtP = v => `${Number(v).toFixed(2)}%`;
+
+  // Derived calculations
+  const cvTotal      = [p(cogs),p(envio),p(transac),p(ingBrut),p(devoluc),p(agencia),p(otrosV)].reduce((a,b)=>a+b,0);
+  const margenBrutoP = 100 - cvTotal;
+  const beRoas       = cvTotal < 100 ? 100 / (100 - cvTotal) : Infinity;
+  const cfTotal      = p(empls)+p(provs)+p(herrs)+p(logis)+p(otrosF);
+  const ebitdaCalc   = (inv, roas) => inv * roas * (1 - cvTotal/100) - inv - cfTotal;
+
+  // P&G
+  const pgI = p(pgInv); const pgR = p(pgRoas);
+  const pgIngresos    = pgI * pgR;
+  const pgDev         = pgIngresos * p(devoluc)/100;
+  const pgProd        = pgIngresos * p(cogs)/100;
+  const pgEnvios      = pgIngresos * p(envio)/100;
+  const pgUtilBruta   = pgIngresos - pgDev - pgProd - pgEnvios;
+  const pgTransac     = pgIngresos * p(transac)/100;
+  const pgIngBrut     = pgIngresos * p(ingBrut)/100;
+  const pgAgencia     = pgIngresos * p(agencia)/100;
+  const pgOtrosV      = pgIngresos * p(otrosV)/100;
+  const pgMargenContr = pgUtilBruta - pgI - pgTransac - pgIngBrut - pgAgencia - pgOtrosV;
+  const pgEbitda      = pgMargenContr - cfTotal;
+  const pgCostTot     = pgDev+pgProd+pgEnvios+pgI+pgTransac+pgIngBrut+pgAgencia+pgOtrosV+cfTotal;
+
+  // Styles
+  const card = {background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"20px 22px",marginBottom:20};
+  const stit = {fontSize:13,fontWeight:700,color:T.text,marginBottom:16,display:"flex",alignItems:"center",gap:8};
+  const lbl  = {fontSize:11,color:T.textDim,marginBottom:5};
+  const inp  = {width:"100%",background:T.bg,border:`1px solid ${T.border2}`,borderRadius:7,color:T.text,padding:"8px 11px 8px 11px",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+
+  function CalcRow({label,value,bold,color}) {
+    return (
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderTop:`1px solid ${T.border}`}}>
+        <span style={{fontSize:12,color:bold?T.text:T.textMuted,fontWeight:bold?600:400}}>{label}</span>
+        <span style={{fontSize:bold?14:13,fontWeight:bold?700:500,fontFamily:"monospace",color:color||T.textSub}}>{value}</span>
+      </div>
+    );
+  }
+
+  function Field({label, value, onChange, suffix="%"}) {
+    return (
+      <div>
+        <div style={lbl}>{label}</div>
+        <div style={{position:"relative"}}>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={value}
+            onChange={e => {
+              // Permitir solo números, punto y coma decimal
+              const v = e.target.value.replace(/[^0-9.,]/g, "").replace(",", ".");
+              onChange(v);
+            }}
+            onBlur={e => {
+              // Al salir, limpiar punto/coma colgante
+              const v = e.target.value.replace(",", ".");
+              const n = parseFloat(v);
+              if (!isNaN(n)) onChange(String(n));
+            }}
+            style={{...inp, paddingRight:32}}
+            placeholder="0"
+          />
+          <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:11,color:T.textFaint,pointerEvents:"none"}}>{suffix}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const r2 = {display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12};
+
+  return (
+    <div style={{padding:"20px 24px",maxWidth:1100,fontFamily:"'Inter',system-ui,sans-serif"}}>
+      <div style={{marginBottom:22}}>
+        <div style={{fontSize:20,fontWeight:800,color:T.text,marginBottom:4}}>Calculadora de Rentabilidad</div>
+        <div style={{fontSize:12,color:T.textMuted}}>Modelá tu estructura de costos y proyectá el EBITDA de tu negocio</div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+        {/* A — Costos Variables */}
+        <div style={card}>
+          <div style={stit}>📉 A — Costos Variables</div>
+          <div style={r2}>
+            <Field label="Costo de producción (COGS)" value={cogs}    onChange={setCogs}/>
+            <Field label="Costo de envío"              value={envio}   onChange={setEnvio}/>
+          </div>
+          <div style={r2}>
+            <Field label="Costo de transacciones"      value={transac} onChange={setTransac}/>
+            <Field label="Ingresos Brutos"             value={ingBrut} onChange={setIngBrut}/>
+          </div>
+          <div style={r2}>
+            <Field label="Costo de devoluciones"       value={devoluc} onChange={setDevoluc}/>
+            <Field label="Agencia de Marketing"        value={agencia} onChange={setAgencia}/>
+          </div>
+          <div style={{marginBottom:14}}><Field label="Otros" value={otrosV} onChange={setOtrosV}/></div>
+          <CalcRow label="Costos Variables Totales" value={fmtP(cvTotal)}      bold color={cvTotal>80?"#f87171":cvTotal>60?"#f59e0b":T.textSub}/>
+          <CalcRow label="% Margen Bruto"           value={fmtP(margenBrutoP)} bold color={margenBrutoP<0?"#f87171":margenBrutoP<20?"#f59e0b":"#4ade80"}/>
+        </div>
+
+        {/* B + C */}
+        <div>
+          <div style={card}>
+            <div style={stit}>🏢 B — Costos Fijos (mensual)</div>
+            <div style={r2}>
+              <Field label="Empleados"    value={empls}  onChange={setEmpls}  suffix="$"/>
+              <Field label="Proveedores"  value={provs}  onChange={setProvs}  suffix="$"/>
+            </div>
+            <div style={r2}>
+              <Field label="Herramientas" value={herrs}  onChange={setHerrs}  suffix="$"/>
+              <Field label="Logística"    value={logis}  onChange={setLogis}  suffix="$"/>
+            </div>
+            <div style={{marginBottom:14}}><Field label="Otros" value={otrosF} onChange={setOtrosF} suffix="$"/></div>
+            <CalcRow label="Costos Fijos Totales" value={fmt$(cfTotal)} bold/>
+          </div>
+
+          {/* C — Break Even ROAS */}
+          <div style={card}>
+            <div style={stit}>⚖️ C — Break Even ROAS</div>
+            <div style={{background:T.bg,border:`1px solid ${T.border2}`,borderRadius:10,padding:"20px",textAlign:"center"}}>
+              <div style={{fontSize:11,color:T.textMuted,marginBottom:8}}>ROAS mínimo para no perder dinero en costos variables</div>
+              <div style={{fontSize:42,fontWeight:800,fontFamily:"monospace",lineHeight:1,color:beRoas<Infinity?(beRoas<=4?"#4ade80":beRoas<=7?"#f59e0b":"#f87171"):T.textFaint}}>
+                {beRoas<Infinity?`${beRoas.toFixed(2)}x`:"∞"}
+              </div>
+              <div style={{fontSize:10,color:T.textFaint,marginTop:8}}>
+                = 1 ÷ (1 − {cvTotal.toFixed(1)}% costos variables)
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* D — Simulador EBITDA */}
+      <div style={card}>
+        <div style={stit}>🔢 D — Simulador EBITDA</div>
+        <div style={{fontSize:11,color:T.textMuted,marginBottom:14}}>
+          Cada celda = <code style={{background:T.bg,padding:"1px 6px",borderRadius:4,fontSize:10,color:T.textDim}}>Inversión × ROAS × (1 − {cvTotal.toFixed(1)}% CVars) − Inversión − {fmt$(cfTotal)} CF</code>
+        </div>
+        <div style={{overflowX:"auto",borderRadius:8,border:`1px solid ${T.border}`}}>
+          <table style={{borderCollapse:"collapse",fontSize:11,width:"100%",minWidth:600}}>
+            <thead>
+              <tr>
+                <th style={{padding:"10px 14px",background:T.bg2,borderBottom:`1px solid ${T.border}`,borderRight:`1px solid ${T.border}`,color:T.textDim,fontSize:10,fontWeight:600,whiteSpace:"nowrap",textAlign:"left"}}>
+                  Inv. ↓ · ROAS →
+                </th>
+                {roasCols.map((roas,ci)=>(
+                  <th key={ci} style={{padding:"6px 4px",background:T.bg2,borderBottom:`1px solid ${T.border}`,borderRight:`1px solid ${T.border}`,minWidth:88,textAlign:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:2}}>
+                      <input type="text" inputMode="decimal" value={roas}
+                        onChange={e=>{const v=parseFloat(e.target.value.replace(",","."));if(!isNaN(v)){const n=[...roasCols];n[ci]=v;setRoasCols(n);}}}
+                        style={{width:48,background:"none",border:`1px solid ${T.border2}`,borderRadius:4,color:T.textSub,padding:"3px 4px",fontSize:11,outline:"none",textAlign:"center",fontFamily:"inherit"}}
+                      />
+                      <span style={{fontSize:10,color:T.textFaint}}>x</span>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {invRows.map((inv,ri)=>(
+                <tr key={ri}>
+                  <td style={{padding:"5px 8px",background:T.bg2,borderBottom:`1px solid ${T.border}`,borderRight:`1px solid ${T.border}`}}>
+                    <input type="text" inputMode="decimal" value={inv}
+                      onChange={e=>{const v=e.target.value.replace(/[^0-9.,]/g,"").replace(",",".");const n=[...invRows];n[ri]=v;setInvRows(n);}}
+                      onBlur={e=>{const v=parseFloat(e.target.value.replace(",","."));if(!isNaN(v)){const n=[...invRows];n[ri]=v;setInvRows(n);}}}
+                      style={{width:116,background:"none",border:`1px solid ${T.border2}`,borderRadius:4,color:T.textSub,padding:"4px 7px",fontSize:11,outline:"none",fontFamily:"inherit"}}
+                    />
+                  </td>
+                  {roasCols.map((roas,ci)=>{
+                    const eb = ebitdaCalc(inv,roas);
+                    const ok = eb >= 0;
+                    return (
+                      <td key={ci} style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,borderRight:`1px solid ${T.border}`,background:ok?"#0a2e1a":"#2d0a0a",textAlign:"right",fontFamily:"monospace",fontWeight:600,fontSize:11,color:ok?"#4ade80":"#f87171",whiteSpace:"nowrap"}}>
+                        {eb>=0?"+":""}{Math.round(eb).toLocaleString("es-AR")}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          {[
+            ["+ Fila inv.", ()=>setInvRows(p=>[...p,Math.round((p[p.length-1]||1000000)*1.33)])],
+            ["− Fila",      ()=>invRows.length>1&&setInvRows(p=>p.slice(0,-1))],
+            ["+ Col ROAS",  ()=>setRoasCols(p=>[...p,Math.round((p[p.length-1]||5)+1)])],
+            ["− Col",       ()=>roasCols.length>1&&setRoasCols(p=>p.slice(0,-1))],
+          ].map(([l,fn])=>(
+            <button key={l} onClick={fn} style={{padding:"5px 12px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:6,color:T.textDim,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* E — P&G Proyectado */}
+      <div style={card}>
+        <div style={stit}>📋 E — P&G Proyectado Mensual</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+          <Field label="Inversión en publicidad ($)" value={pgInv}  onChange={setPgInv}  suffix="$"/>
+          <Field label="ROAS objetivo"               value={pgRoas} onChange={setPgRoas} suffix="x"/>
+        </div>
+        {(pgI>0&&pgR>0) ? (
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
+            {/* Left: Estado de resultados */}
+            <div>
+              <div style={{fontSize:10,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Estado de Resultados</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0"}}>
+                <span style={{fontSize:12,fontWeight:700,color:T.text}}>Ingresos</span>
+                <span style={{fontSize:14,fontWeight:700,fontFamily:"monospace",color:"#4ade80"}}>{fmt$(pgIngresos)}</span>
+              </div>
+              <CalcRow label="(-) Devoluciones"             value={fmt$(-pgDev)}/>
+              <CalcRow label="(-) Costos de producción"     value={fmt$(-pgProd)}/>
+              <CalcRow label="(-) Envíos"                   value={fmt$(-pgEnvios)}/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:`2px solid ${T.border2}`,marginTop:2}}>
+                <span style={{fontSize:12,fontWeight:700,color:T.text}}>Utilidad Bruta</span>
+                <span style={{fontSize:13,fontWeight:700,fontFamily:"monospace",color:pgUtilBruta>=0?"#60a5fa":"#f87171"}}>{fmt$(pgUtilBruta)}</span>
+              </div>
+              <CalcRow label="(-) Inversión en publicidad"  value={fmt$(-pgI)}/>
+              <CalcRow label="(-) Costos de transacciones"  value={fmt$(-pgTransac)}/>
+              <CalcRow label="(-) Ingresos Brutos"          value={fmt$(-pgIngBrut)}/>
+              <CalcRow label="(-) Agencia de Marketing"     value={fmt$(-pgAgencia)}/>
+              <CalcRow label="(-) Otros costos variables"   value={fmt$(-pgOtrosV)}/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:`2px solid ${T.border2}`,marginTop:2}}>
+                <span style={{fontSize:12,fontWeight:700,color:T.text}}>Margen de Contribución</span>
+                <span style={{fontSize:13,fontWeight:700,fontFamily:"monospace",color:pgMargenContr>=0?"#a78bfa":"#f87171"}}>{fmt$(pgMargenContr)}</span>
+              </div>
+              <CalcRow label="(-) Empleados"    value={fmt$(-p(empls))}/>
+              <CalcRow label="(-) Proveedores"  value={fmt$(-p(provs))}/>
+              <CalcRow label="(-) Herramientas" value={fmt$(-p(herrs))}/>
+              <CalcRow label="(-) Logística"    value={fmt$(-p(logis))}/>
+              <CalcRow label="(-) Otros fijos"  value={fmt$(-p(otrosF))}/>
+              <CalcRow label="Costos Totales"   value={fmt$(pgCostTot)} bold/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderTop:`2px solid ${T.border2}`,marginTop:4,background:pgEbitda>=0?"#0a2e1a44":"#2d0a0a44",borderRadius:8}}>
+                <span style={{fontSize:13,fontWeight:800,color:T.text}}>EBITDA</span>
+                <span style={{fontSize:20,fontWeight:800,fontFamily:"monospace",color:pgEbitda>=0?"#4ade80":"#f87171"}}>{pgEbitda>=0?"+":""}{fmt$(pgEbitda)}</span>
+              </div>
+            </div>
+            {/* Right: Resumen + Márgenes */}
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"16px 18px"}}>
+                <div style={{fontSize:10,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>Resumen</div>
+                {[
+                  {l:"Ingresos",          v:fmt$(pgIngresos),    c:"#4ade80"},
+                  {l:"Costos totales",    v:fmt$(pgCostTot),     c:"#f87171"},
+                  {l:"Margen contrib.",   v:fmt$(pgMargenContr), c:pgMargenContr>=0?"#a78bfa":"#f87171"},
+                  {l:"EBITDA",           v:fmt$(pgEbitda),      c:pgEbitda>=0?"#4ade80":"#f87171"},
+                ].map(({l,v,c})=>(
+                  <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <span style={{fontSize:11,color:T.textMuted}}>{l}</span>
+                    <span style={{fontSize:15,fontWeight:700,fontFamily:"monospace",color:c}}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"16px 18px"}}>
+                <div style={{fontSize:10,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>Márgenes</div>
+                {[
+                  {l:"Margen Bruto",         v:pgIngresos>0?fmtP((pgUtilBruta/pgIngresos)*100):"—"},
+                  {l:"Margen Contribución",  v:pgIngresos>0?fmtP((pgMargenContr/pgIngresos)*100):"—"},
+                  {l:"Margen EBITDA",        v:pgIngresos>0?fmtP((pgEbitda/pgIngresos)*100):"—"},
+                ].map(({l,v})=>(
+                  <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                    <span style={{fontSize:11,color:T.textMuted}}>{l}</span>
+                    <span style={{fontSize:13,fontWeight:700,fontFamily:"monospace",color:T.textSub}}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"16px 18px"}}>
+                <div style={{fontSize:10,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>Break Even ROAS actual</div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:28,fontWeight:800,fontFamily:"monospace",color:beRoas<Infinity?(beRoas<=4?"#4ade80":beRoas<=7?"#f59e0b":"#f87171"):T.textFaint}}>
+                    {beRoas<Infinity?`${beRoas.toFixed(2)}x`:"∞"}
+                  </div>
+                  <div style={{fontSize:10,color:T.textFaint,marginTop:4}}>
+                    ROAS objetivo ({pgR.toFixed(2)}x) {pgR>=beRoas?"✓ supera":"✗ no supera"} el break even
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{textAlign:"center",padding:"36px 20px",color:T.textFaint,fontSize:12,background:T.bg,borderRadius:10,border:`1px dashed ${T.border2}`}}>
+            <div style={{fontSize:32,marginBottom:8}}>💡</div>
+            Ingresá la inversión en publicidad y el ROAS objetivo para ver el estado de resultados proyectado
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── NAVIGATION ──────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  {id:"dashboard", label:"Dashboard", icon:"📊"},
-  {id:"campaigns", label:"Campañas",  icon:"📣"},
-  {id:"creatives", label:"Creativos", icon:"🎨"},
-  {id:"tasks",     label:"Tareas",    icon:"✅"},
-  {id:"report",    label:"Reporte",   icon:"📄"},
-  {id:"settings",  label:"Ajustes",   icon:"⚙️"},
+  {id:"dashboard", label:"Dashboard",    icon:"📊"},
+  {id:"campaigns", label:"Campañas",     icon:"📣"},
+  {id:"creatives", label:"Creativos",    icon:"🎨"},
+  {id:"tasks",     label:"Tareas",       icon:"✅"},
+  {id:"audit",      label:"Auditoría",    icon:"📋"},
+  {id:"ganancias",  label:"Ganancias",    icon:"💸"},
+  {id:"report",     label:"Reporte",      icon:"📄"},
+  {id:"profit",     label:"Rentabilidad", icon:"💰"},
+  {id:"settings",  label:"Ajustes",      icon:"⚙️"},
 ];
 
 // ─── OVERVIEW MODULE ─────────────────────────────────────────────────────────
@@ -2511,9 +3666,10 @@ function OverviewModule({ accounts, tasks, onSelect }) {
 
 // ─── META CACHE ───────────────────────────────────────────────────────────────
 const META_CACHE_TTL = 5 * 60 * 1000;
+const META_CACHE_PREFIX = "meta_cache_v10_";
 function getMetaCache(accountId, from, to) {
   try {
-    const raw = localStorage.getItem(`meta_cache_v10_${accountId}_${from}_${to}`);
+    const raw = localStorage.getItem(`${META_CACHE_PREFIX}${accountId}_${from}_${to}`);
     if (!raw) return null;
     const { data, ts } = JSON.parse(raw);
     if (Date.now() - ts > META_CACHE_TTL) return null;
@@ -2522,13 +3678,544 @@ function getMetaCache(accountId, from, to) {
 }
 function setMetaCache(accountId, from, to, data) {
   try {
-    localStorage.setItem(`meta_cache_v10_${accountId}_${from}_${to}`, JSON.stringify({ data, ts: Date.now() }));
+    localStorage.setItem(`${META_CACHE_PREFIX}${accountId}_${from}_${to}`, JSON.stringify({ data, ts: Date.now() }));
   } catch {}
+}
+function clearAllMetaCache() {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(META_CACHE_PREFIX))
+      .forEach(k => localStorage.removeItem(k));
+  } catch {}
+}
+
+// ─── CUSTOM METRICS ───────────────────────────────────────────────────────────
+function formatCmVal(v, fmt) {
+  const n = Number(v) || 0;
+  if (fmt==="$") return `$${n.toLocaleString("es-AR",{minimumFractionDigits:0})}`;
+  if (fmt==="%") return `${n.toFixed(1)}%`;
+  if (fmt==="x") return `${n.toFixed(2)}x`;
+  if (fmt==="s") return `${n.toFixed(1)}s`;
+  if (fmt==="k") {
+    if (n>=1000000) return `${(n/1000000).toFixed(1)}M`;
+    if (n>=1000) return `${(n/1000).toFixed(0)}k`;
+    return String(Math.round(n));
+  }
+  return String(Math.round(n));
+}
+
+const CUSTOM_METRICS_CATALOG = [
+  // ── Performance ──
+  { id:"cm_impressions",       cat:"📊 Performance", label:"Impresiones",                fmt:"k", getValue: a => a.funnel?.creativos?.impresiones||0 },
+  { id:"cm_reach",             cat:"📊 Performance", label:"Alcance",                    fmt:"k", getValue: a => a.funnel?.creativos?.alcance||0 },
+  { id:"cm_frequency",         cat:"📊 Performance", label:"Frecuencia",                 fmt:"x", getValue: a => a.funnel?.creativos?.frecuencia||0 },
+  { id:"cm_clicks_all",        cat:"📊 Performance", label:"Clics (Todos)",              fmt:"k", getValue: a => a.funnel?.creativos?.clicsTodos||0 },
+  { id:"cm_link_clicks",       cat:"📊 Performance", label:"Clics en el Enlace",         fmt:"k", getValue: a => a.funnel?.creativos?.clicsEnlace||0 },
+  { id:"cm_unique_link_clicks",cat:"📊 Performance", label:"Clics Únicos en el Enlace",  fmt:"k", getValue: a => a.funnel?.creativos?.clicsUnicosEnlace||0 },
+  { id:"cm_ctr_all",           cat:"📊 Performance", label:"CTR (Todos)",                fmt:"%", getValue: a => a.funnel?.creativos?.ctrTodos||0 },
+  { id:"cm_ctr_link",          cat:"📊 Performance", label:"CTR (Enlace)",               fmt:"%", getValue: a => a.funnel?.creativos?.ctrUnico||0 },
+  { id:"cm_cpc_all",           cat:"📊 Performance", label:"CPC (Todos)",                fmt:"$", getValue: a => a.funnel?.creativos?.cpcTodos||0 },
+  { id:"cm_cpc_link",          cat:"📊 Performance", label:"CPC (Enlace)",               fmt:"$", getValue: a => a.funnel?.creativos?.cpcEnlace||0 },
+  { id:"cm_cpm",               cat:"📊 Performance", label:"CPM",                        fmt:"$", getValue: a => a.funnel?.creativos?.cpm||0 },
+  { id:"cm_spend",             cat:"📊 Performance", label:"Gasto",                      fmt:"$", getValue: a => a.funnel?.conversion?.inversion||0 },
+  { id:"cm_roas",              cat:"📊 Performance", label:"ROAS",                       fmt:"x", getValue: a => a.funnel?.conversion?.roas||0 },
+  { id:"cm_conversions",       cat:"📊 Performance", label:"Conversiones",               fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
+  { id:"cm_cpr",               cat:"📊 Performance", label:"Costo por Resultado",        fmt:"$", getValue: a => a.funnel?.conversion?.costoCompra||0 },
+  { id:"cm_results",           cat:"📊 Performance", label:"Resultados",                 fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
+  { id:"cm_result_rate",       cat:"📊 Performance", label:"Tasa de Resultados",         fmt:"%", getValue: a => {
+    const imp = a.funnel?.creativos?.impresiones||0;
+    const conv = a.funnel?.conversion?.conversiones||0;
+    return imp > 0 ? (conv/imp)*100 : 0;
+  }},
+  // ── Creativo ──
+  { id:"cm_video_plays",       cat:"🎨 Creativo", label:"Reproducciones de Video",        fmt:"k", getValue: a => a.funnel?.creativos?.videoPlays||0 },
+  { id:"cm_video_2s",          cat:"🎨 Creativo", label:"Reproducciones de 2 Segundos",   fmt:"k", getValue: a => a.funnel?.creativos?.videoViews2s||0 },
+  { id:"cm_thruplay",          cat:"🎨 Creativo", label:"Reproducciones ThruPlay",         fmt:"k", getValue: a => a.funnel?.creativos?.videoThruplay||0 },
+  { id:"cm_avg_watch",         cat:"🎨 Creativo", label:"Tiempo Prom. de Reproducción",   fmt:"s", getValue: a => a.funnel?.creativos?.videoAvgTime||0 },
+  { id:"cm_hook_rate",         cat:"🎨 Creativo", label:"Hook Rate (3s / Impresiones)",    fmt:"%", getValue: a => {
+    const cr = a.funnel?.creativos;
+    return cr?.impresiones > 0 ? ((cr?.videoPlays||0)/cr.impresiones)*100 : 0;
+  }},
+  { id:"cm_thumbstop",         cat:"🎨 Creativo", label:"Thumbstop Rate (2s / Impresiones)",fmt:"%", getValue: a => {
+    const cr = a.funnel?.creativos;
+    return cr?.impresiones > 0 ? ((cr?.videoViews2s||0)/cr.impresiones)*100 : 0;
+  }},
+  { id:"cm_cr_unique_link",    cat:"🎨 Creativo", label:"Clics Únicos en el Enlace",      fmt:"k", getValue: a => a.funnel?.creativos?.clicsUnicosEnlace||0 },
+  { id:"cm_cr_frequency",      cat:"🎨 Creativo", label:"Frecuencia",                     fmt:"x", getValue: a => a.funnel?.creativos?.frecuencia||0 },
+  // ── Conversión ──
+  { id:"cm_purchases",         cat:"💰 Conversión", label:"Compras",                      fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
+  { id:"cm_cost_purchase",     cat:"💰 Conversión", label:"Costo por Compra",             fmt:"$", getValue: a => a.funnel?.conversion?.costoCompra||0 },
+  { id:"cm_atc",               cat:"💰 Conversión", label:"Agregar al Carrito",           fmt:"k", getValue: a => a.funnel?.acciones?.addToCart||0 },
+  { id:"cm_cost_atc",          cat:"💰 Conversión", label:"Costo por ATC",               fmt:"$", getValue: a => a.funnel?.acciones?.costoCarrito||0 },
+  { id:"cm_initiate_checkout", cat:"💰 Conversión", label:"Inicio de Pago",              fmt:"k", getValue: a => a.funnel?.acciones?.pagosIniciados||0 },
+  { id:"cm_cost_checkout",     cat:"💰 Conversión", label:"Costo por Inicio de Pago",    fmt:"$", getValue: a => a.funnel?.acciones?.costoPagosIniciados||0 },
+  { id:"cm_leads",             cat:"💰 Conversión", label:"Leads",                       fmt:"k", getValue: a => a.funnel?.acciones?.leads||0 },
+  { id:"cm_cost_lead",         cat:"💰 Conversión", label:"Costo por Lead",              fmt:"$", getValue: a => a.funnel?.acciones?.costoLead||0 },
+  { id:"cm_ticket",            cat:"💰 Conversión", label:"Ticket Promedio",             fmt:"$", getValue: a => a.funnel?.conversion?.ticketPromedio||0 },
+  { id:"cm_conv_rate",         cat:"💰 Conversión", label:"Tasa de Conversión Web",      fmt:"%", getValue: a => a.funnel?.conversion?.tasaConversionWeb||0 },
+  // ── Audiencia ──
+  { id:"cm_new_convos",        cat:"👥 Audiencia", label:"Nuevas Conversaciones",         fmt:"k", getValue: a => a.funnel?.acciones?.nuevasConversaciones||0 },
+  { id:"cm_convos_started",    cat:"👥 Audiencia", label:"Conversaciones Iniciadas",     fmt:"k", getValue: a => a.funnel?.acciones?.conversacionesIniciadas||0 },
+  { id:"cm_page_likes",        cat:"👥 Audiencia", label:"Me Gusta en la Página",        fmt:"k", getValue: a => a.funnel?.acciones?.meLikesPagina||0 },
+  { id:"cm_interactions",      cat:"👥 Audiencia", label:"Interacciones",                fmt:"k", getValue: a => {
+    const ac = a.funnel?.acciones||{};
+    return (ac.reacciones||0)+(ac.comentarios||0)+(ac.compartidos||0);
+  }},
+  { id:"cm_reactions",         cat:"👥 Audiencia", label:"Reacciones",                   fmt:"k", getValue: a => a.funnel?.acciones?.reacciones||0 },
+  { id:"cm_comments",          cat:"👥 Audiencia", label:"Comentarios",                  fmt:"k", getValue: a => a.funnel?.acciones?.comentarios||0 },
+  { id:"cm_shares",            cat:"👥 Audiencia", label:"Compartidos",                  fmt:"k", getValue: a => a.funnel?.acciones?.compartidos||0 },
+  { id:"cm_photo_views",       cat:"👥 Audiencia", label:"Visualizaciones de Fotos",    fmt:"k", getValue: a => a.funnel?.acciones?.fotosVistas||0 },
+  // ── Atribución ──
+  { id:"cm_attr_click_1d",     cat:"📎 Atribución", label:"Conv. clic 1 día",            fmt:"k", getValue: a => a.funnel?.atribucion?.click1d||0 },
+  { id:"cm_attr_click_7d",     cat:"📎 Atribución", label:"Conv. clic 7 días",           fmt:"k", getValue: a => a.funnel?.atribucion?.click7d||0 },
+  { id:"cm_attr_view_1d",      cat:"📎 Atribución", label:"Conv. vista 1 día",           fmt:"k", getValue: a => a.funnel?.atribucion?.view1d||0 },
+  { id:"cm_attr_7d_1d",        cat:"📎 Atribución", label:"Conv. clic 7d + vista 1d",    fmt:"k", getValue: a => a.funnel?.atribucion?.click7dView1d||0 },
+];
+
+// Evaluador aritmético seguro (sin eval / Function)
+function safeEval(expr) {
+  const src = String(expr).replace(/×/g,"*").replace(/÷/g,"/").replace(/\s+/g,"");
+  const toks = [];
+  let i = 0;
+  while (i < src.length) {
+    if (/[\d.]/.test(src[i])) {
+      let n = ""; while (i < src.length && /[\d.]/.test(src[i])) n += src[i++];
+      toks.push({ t:"n", v: parseFloat(n) });
+    } else if ("+-*/()".includes(src[i])) {
+      toks.push({ t:"op", v: src[i++] });
+    } else i++;
+  }
+  let pos = 0;
+  const peek = () => toks[pos] || null;
+  const eat  = () => toks[pos++];
+  function expr2() {
+    let l = term();
+    while (peek() && (peek().v==="+"||peek().v==="-")) { const op=eat().v; const r=term(); l=op==="+"?l+r:l-r; }
+    return l;
+  }
+  function term() {
+    let l = factor();
+    while (peek() && (peek().v==="*"||peek().v==="/")) { const op=eat().v; const r=factor(); l=op==="*"?l*r:(r!==0?l/r:0); }
+    return l;
+  }
+  function factor() {
+    const t = peek();
+    if (!t) return 0;
+    if (t.t==="n") { eat(); return t.v; }
+    if (t.v==="(") { eat(); const v=expr2(); if(peek()?.v===")") eat(); return v; }
+    if (t.v==="-") { eat(); return -factor(); }
+    return 0;
+  }
+  try { return expr2(); } catch { return 0; }
+}
+
+function evaluateCustomMetric(def, account) {
+  if (!def?.formula?.length) return 0;
+  const expr = def.formula.map(t => {
+    if (t.type==="metric") {
+      const m = CUSTOM_METRICS_CATALOG.find(m => m.id===t.id);
+      return String(m ? (m.getValue(account)||0) : 0);
+    }
+    return t.value || "";
+  }).join(" ");
+  return safeEval(expr);
+}
+
+// ── Creador de métrica personalizada (estilo Meta) ────────────────────────────
+const CM_FMT_OPTS = [
+  { value:"k", label:"Numérico (123)" },
+  { value:"%", label:"Porcentaje (%)" },
+  { value:"$", label:"Divisa ($)"     },
+  { value:"x", label:"Ratio (x)"      },
+  { value:"s", label:"Segundos (s)"   },
+];
+const CM_OPS = ["+","-","×","÷","(", ")"];
+
+function CustomMetricCreatorModal({ onSave, onClose, initial = null }) {
+  const T = useT();
+  const [formula, setFormula]   = useState(initial?.formula || []);
+  const [name,    setName]      = useState(initial?.name || "");
+  const [desc,    setDesc]      = useState(initial?.description || "");
+  const [fmt,     setFmt]       = useState(initial?.fmt || "k");
+  const [mSearch, setMSearch]   = useState("");
+  const [picker,  setPicker]    = useState(false);
+
+  const pickerMetrics = useMemo(() => {
+    const q = mSearch.toLowerCase().trim();
+    return q ? CUSTOM_METRICS_CATALOG.filter(m => m.label.toLowerCase().includes(q)||m.cat.toLowerCase().includes(q)) : CUSTOM_METRICS_CATALOG;
+  }, [mSearch]);
+
+  const addMetric = m => { setFormula(f=>[...f,{type:"metric",id:m.id,value:m.label}]); setPicker(false); setMSearch(""); };
+  const addOp     = op => setFormula(f=>[...f,{type:"op",value:op}]);
+  const removeLast= () => setFormula(f=>f.slice(0,-1));
+  const clearAll  = () => setFormula([]);
+
+  const canSave = name.trim().length > 0 && formula.length > 0;
+
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave({ id: initial?.id || `custom_${Date.now()}`, name:name.trim(), description:desc.trim(), fmt, formula });
+  };
+
+  const inp = { background:T.bg, border:`1px solid ${T.border2}`, borderRadius:7, color:T.text, padding:"9px 12px", fontSize:13, outline:"none", width:"100%", boxSizing:"border-box", fontFamily:"inherit" };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"'Inter',system-ui,sans-serif"}}>
+      <div style={{background:T.bg1,border:`1px solid ${T.border2}`,borderRadius:18,width:"100%",maxWidth:660,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{padding:"20px 24px 14px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text}}>{initial?"Editar":"Crear"} métrica personalizada</div>
+            <button onClick={onClose} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:22,padding:0,lineHeight:1}}>×</button>
+          </div>
+          <div style={{fontSize:12,color:T.textDim}}>Combiná métricas de Meta Ads con una fórmula personalizada</div>
+        </div>
+
+        {/* Body */}
+        <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
+
+          {/* ── Fórmula ── */}
+          <div style={{marginBottom:20}}>
+            <div style={{fontSize:11,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:9}}>Fórmula</div>
+
+            {/* Barra de herramientas */}
+            <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+              {/* Selector de métrica */}
+              <div style={{position:"relative"}}>
+                <button onClick={()=>setPicker(p=>!p)} style={{padding:"7px 11px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
+                  Seleccionar métrica <span style={{fontSize:9,opacity:0.55}}>▼</span>
+                </button>
+                {picker && (
+                  <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:20,background:T.bg1,border:`1px solid ${T.border2}`,borderRadius:10,width:290,maxHeight:270,display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 10px 36px rgba(0,0,0,0.45)"}}>
+                    <div style={{padding:"8px 10px",borderBottom:`1px solid ${T.border}`}}>
+                      <input value={mSearch} onChange={e=>setMSearch(e.target.value)} placeholder="Buscar métrica..." autoFocus style={{...inp,padding:"6px 10px",fontSize:12}}/>
+                    </div>
+                    <div style={{overflowY:"auto"}}>
+                      {pickerMetrics.map(m=>(
+                        <div key={m.id} onClick={()=>addMetric(m)} style={{padding:"8px 13px",cursor:"pointer",borderBottom:`1px solid ${T.divider}`}}
+                          onMouseEnter={e=>e.currentTarget.style.background=T.hover}
+                          onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                          <div style={{fontSize:12,color:T.textSub,fontWeight:500}}>{m.label}</div>
+                          <div style={{fontSize:10,color:T.textFaint,marginTop:1}}>{m.cat}</div>
+                        </div>
+                      ))}
+                      {!pickerMetrics.length && <div style={{padding:16,textAlign:"center",color:T.textFaint,fontSize:12}}>Sin resultados</div>}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Operadores */}
+              {CM_OPS.map(op=>(
+                <button key={op} onClick={()=>addOp(op)} style={{width:34,height:34,background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:15,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {op}
+                </button>
+              ))}
+
+              {/* Borrar último */}
+              <button onClick={removeLast} disabled={!formula.length} style={{padding:"7px 11px",background:"none",border:`1px solid ${T.border2}`,borderRadius:7,color:"#f87171",cursor:formula.length?"pointer":"default",fontSize:12,fontWeight:600,opacity:formula.length?1:0.4,marginLeft:"auto"}}>
+                ← Borrar
+              </button>
+            </div>
+
+            {/* Display fórmula */}
+            <div onClick={()=>setPicker(true)} style={{minHeight:64,background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,padding:"10px 13px",cursor:"text"}}>
+              {formula.length > 0 ? (
+                <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
+                  {formula.map((t,i)=>(
+                    <span key={i} style={{
+                      display:"inline-flex",alignItems:"center",padding:t.type==="metric"?"3px 9px":"3px 7px",
+                      borderRadius:5, margin:1,
+                      background:t.type==="metric"?"#3b82f622":"#f59e0b22",
+                      border:`1px solid ${t.type==="metric"?"#3b82f644":"#f59e0b44"}`,
+                      color:t.type==="metric"?"#60a5fa":"#f59e0b",
+                      fontSize:12,fontWeight:600,
+                    }}>{t.value}</span>
+                  ))}
+                </div>
+              ) : (
+                <div style={{color:T.textFaint,fontSize:12,lineHeight:1.5}}>
+                  Para combinar las métricas en una fórmula, seleccioná Métricas en el menú desplegable o presioná un operador.
+                  <br/><span style={{color:T.textDim}}>Ejemplo: Gasto ÷ Compras</span>
+                </div>
+              )}
+            </div>
+            {formula.length > 0 && (
+              <div style={{display:"flex",justifyContent:"flex-end",marginTop:5}}>
+                <button onClick={clearAll} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:11,padding:0}}>Limpiar fórmula</button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Nombre + Formato ── */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 180px",gap:12,marginBottom:14}}>
+            <div>
+              <div style={{fontSize:11,color:T.textDim,marginBottom:6}}>Nombre</div>
+              <div style={{position:"relative"}}>
+                <input value={name} onChange={e=>setName(e.target.value.slice(0,100))} placeholder="Asigná un nombre a esta métrica" style={{...inp,paddingRight:44}}/>
+                <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:10,color:T.textFaint}}>{name.length}/100</span>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:T.textDim,marginBottom:6}}>Formato</div>
+              <select value={fmt} onChange={e=>setFmt(e.target.value)} style={{...inp,padding:"9px 10px",cursor:"pointer"}}>
+                {CM_FMT_OPTS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* ── Descripción ── */}
+          <div>
+            <div style={{fontSize:11,color:T.textDim,marginBottom:6}}>Descripción · <span style={{color:T.textFaint}}>Opcional</span></div>
+            <input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Describe esta métrica" style={inp}/>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:"14px 24px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
+          <button onClick={onClose} style={{padding:"8px 18px",background:"none",border:`1px solid ${T.border2}`,borderRadius:7,color:T.textMuted,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>
+            Cancelar
+          </button>
+          <button onClick={handleSave} disabled={!canSave} style={{padding:"8px 22px",background:canSave?"#a78bfa":"#333",border:"none",borderRadius:7,color:"#fff",cursor:canSave?"pointer":"default",fontSize:13,fontWeight:700,fontFamily:"inherit",opacity:canSave?1:0.5}}>
+            {initial?"Guardar cambios":"Guardar métrica"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CustomMetricsModal({ selected, customDefs, onSave, onClose }) {
+  const T = useT();
+  const [tab,      setTab]      = useState("catalog");        // "catalog" | "custom"
+  const [query,    setQuery]    = useState("");
+  const [localSel, setLocalSel] = useState(() => new Set(selected));
+  const [localDefs,setLocalDefs]= useState(customDefs || []);
+  const [creator,  setCreator]  = useState(null);             // null | "new" | {def}
+
+  // ── Catálogo ──
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    return q ? CUSTOM_METRICS_CATALOG.filter(m => m.label.toLowerCase().includes(q)||m.cat.toLowerCase().includes(q)) : CUSTOM_METRICS_CATALOG;
+  }, [query]);
+  const categories = useMemo(() => {
+    const map = {};
+    filtered.forEach(m => { if (!map[m.cat]) map[m.cat]=[]; map[m.cat].push(m); });
+    return map;
+  }, [filtered]);
+
+  const toggleCatalog = id => setLocalSel(prev => {
+    const next = new Set(prev); next.has(id)?next.delete(id):next.add(id); return next;
+  });
+  const toggleCustom = id => setLocalSel(prev => {
+    const next = new Set(prev); next.has(id)?next.delete(id):next.add(id); return next;
+  });
+
+  // ── Creador ──
+  const handleSaveDef = def => {
+    const isEdit = localDefs.some(d=>d.id===def.id);
+    const newDefs = isEdit ? localDefs.map(d=>d.id===def.id?def:d) : [...localDefs,def];
+    setLocalDefs(newDefs);
+    setLocalSel(prev=>{ const n=new Set(prev); n.add(def.id); return n; });
+    setCreator(null);
+  };
+  const deleteDef = id => {
+    setLocalDefs(prev=>prev.filter(d=>d.id!==id));
+    setLocalSel(prev=>{ const n=new Set(prev); n.delete(id); return n; });
+  };
+
+  const totalSel = localSel.size;
+
+  if (creator) {
+    return (
+      <CustomMetricCreatorModal
+        initial={creator==="new"?null:creator}
+        onSave={handleSaveDef}
+        onClose={()=>setCreator(null)}
+      />
+    );
+  }
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"'Inter',system-ui,sans-serif"}}>
+      <div style={{background:T.bg1,border:`1px solid ${T.border2}`,borderRadius:18,width:"100%",maxWidth:720,maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+        {/* ── Header ── */}
+        <div style={{padding:"18px 24px 0",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:700,color:T.text}}>Métricas del Dashboard</div>
+              <div style={{fontSize:12,color:T.textDim,marginTop:2}}>{totalSel} seleccionadas · se anclan al Dashboard</div>
+            </div>
+            <button onClick={onClose} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:24,lineHeight:1,padding:0,marginTop:2}}>×</button>
+          </div>
+          {/* Tabs */}
+          <div style={{display:"flex",gap:0,borderBottom:`1px solid ${T.border}`}}>
+            {[["catalog","Catálogo de métricas"],["custom","Mis métricas personalizadas"]].map(([id,label])=>(
+              <button key={id} onClick={()=>{setTab(id);setQuery("");}} style={{padding:"9px 18px",background:"none",border:"none",borderBottom:`2px solid ${tab===id?"#a78bfa":"transparent"}`,color:tab===id?"#a78bfa":T.textMuted,cursor:"pointer",fontSize:13,fontWeight:tab===id?700:400,fontFamily:"inherit",marginBottom:-1}}>
+                {label}{id==="custom"&&localDefs.length>0&&<span style={{marginLeft:6,background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:10,padding:"0 6px",fontSize:10,color:"#a78bfa"}}>{localDefs.length}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Body ── */}
+        <div style={{flex:1,overflowY:"auto",padding:"16px 24px"}}>
+
+          {tab==="catalog" && (
+            <>
+              <input value={query} onChange={e=>setQuery(e.target.value)} placeholder={`Buscar entre ${CUSTOM_METRICS_CATALOG.length} métricas...`} autoFocus
+                style={{width:"100%",background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,color:T.text,padding:"9px 13px",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit",marginBottom:16}}/>
+              {Object.entries(categories).map(([cat,metrics])=>(
+                <div key={cat} style={{marginBottom:20}}>
+                  <div style={{fontSize:11,fontWeight:700,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>{cat}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+                    {metrics.map(m=>{
+                      const chk = localSel.has(m.id);
+                      return (
+                        <label key={m.id} onClick={()=>toggleCatalog(m.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:8,border:`1px solid ${chk?"#a78bfa55":T.border}`,background:chk?"#a78bfa0d":T.bg,cursor:"pointer",userSelect:"none"}}>
+                          <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${chk?"#a78bfa":T.border2}`,background:chk?"#a78bfa":"none",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            {chk&&<span style={{color:"#fff",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
+                          </div>
+                          <span style={{fontSize:12,color:chk?T.text:T.textMuted,fontWeight:chk?600:400}}>{m.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {!Object.keys(categories).length && <div style={{textAlign:"center",padding:48,color:T.textFaint,fontSize:13}}>Sin resultados para "{query}"</div>}
+            </>
+          )}
+
+          {tab==="custom" && (
+            <div>
+              {/* Botón crear */}
+              <button onClick={()=>setCreator("new")} style={{width:"100%",padding:"12px 16px",background:"#a78bfa0d",border:"2px dashed #a78bfa44",borderRadius:10,color:"#a78bfa",cursor:"pointer",fontSize:13,fontWeight:700,marginBottom:20,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <span style={{fontSize:16}}>+</span> Crear métrica personalizada
+              </button>
+
+              {localDefs.length === 0 ? (
+                <div style={{textAlign:"center",padding:"40px 20px",color:T.textFaint,fontSize:13}}>
+                  <div style={{fontSize:28,marginBottom:12}}>🧮</div>
+                  <div style={{fontWeight:600,color:T.textSub,marginBottom:4}}>Todavía no tenés métricas personalizadas</div>
+                  <div>Creá tu primera métrica combinando las de Meta Ads con una fórmula</div>
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {localDefs.map(def=>{
+                    const chk = localSel.has(def.id);
+                    const fmt = CM_FMT_OPTS.find(o=>o.value===def.fmt)?.label||def.fmt;
+                    return (
+                      <div key={def.id} style={{background:T.bg,border:`1px solid ${chk?"#a78bfa55":T.border}`,borderRadius:10,padding:"12px 14px",display:"flex",alignItems:"center",gap:12}}>
+                        {/* Checkbox */}
+                        <div onClick={()=>toggleCustom(def.id)} style={{width:18,height:18,borderRadius:4,border:`2px solid ${chk?"#a78bfa":T.border2}`,background:chk?"#a78bfa":"none",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {chk&&<span style={{color:"#fff",fontSize:10,fontWeight:900,lineHeight:1}}>✓</span>}
+                        </div>
+                        {/* Info */}
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:3}}>{def.name}</div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
+                            {def.formula.map((t,i)=>(
+                              <span key={i} style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:t.type==="metric"?"#3b82f622":"#f59e0b22",color:t.type==="metric"?"#60a5fa":"#f59e0b",border:`1px solid ${t.type==="metric"?"#3b82f644":"#f59e0b44"}`,fontWeight:600}}>
+                                {t.value}
+                              </span>
+                            ))}
+                          </div>
+                          {def.description && <div style={{fontSize:11,color:T.textFaint,marginTop:4}}>{def.description}</div>}
+                        </div>
+                        {/* Formato */}
+                        <span style={{fontSize:10,color:T.textDim,flexShrink:0,background:T.bg2,border:`1px solid ${T.border}`,borderRadius:5,padding:"2px 7px"}}>{fmt}</span>
+                        {/* Acciones */}
+                        <div style={{display:"flex",gap:5,flexShrink:0}}>
+                          <button onClick={()=>setCreator(def)} style={{padding:"4px 10px",background:"none",border:`1px solid ${T.border2}`,borderRadius:6,color:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:600}}>Editar</button>
+                          <button onClick={()=>deleteDef(def.id)} style={{padding:"4px 8px",background:"none",border:"1px solid #991b1b44",borderRadius:6,color:"#f87171",cursor:"pointer",fontSize:11,fontWeight:600}}>✕</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        <div style={{padding:"12px 24px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
+          <button onClick={()=>setLocalSel(new Set())} style={{padding:"7px 14px",background:"none",border:`1px solid ${T.border2}`,borderRadius:7,color:T.textMuted,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>Limpiar</button>
+          <span style={{flex:1,fontSize:12,color:T.textFaint,paddingLeft:2}}>{totalSel} métrica{totalSel!==1?"s":""} anclada{totalSel!==1?"s":""}</span>
+          <button onClick={onClose} style={{padding:"7px 16px",background:"none",border:`1px solid ${T.border2}`,borderRadius:7,color:T.textMuted,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>Cancelar</button>
+          <button onClick={()=>onSave([...localSel],localDefs)} style={{padding:"7px 20px",background:"#a78bfa",border:"none",borderRadius:7,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CustomMetricsSection({ account, selected, customDefs, onOpen }) {
+  const T = useT();
+  // Resuelve cada ID seleccionado a una definición de métrica (catálogo o personalizada)
+  const resolved = selected.map(id => {
+    const catalog = CUSTOM_METRICS_CATALOG.find(m => m.id === id);
+    if (catalog) return { id, label: catalog.label, fmt: catalog.fmt, getValue: a => catalog.getValue(a) };
+    const custom  = customDefs.find(d => d.id === id);
+    if (custom)  return { id, label: custom.name,   fmt: custom.fmt,  getValue: a => evaluateCustomMetric(custom, a) };
+    return null;
+  }).filter(Boolean);
+
+  const hasAny = resolved.length > 0;
+
+  return (
+    <div style={{marginTop:20}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+        <div style={{width:10,height:10,borderRadius:2,background:"#a78bfa",flexShrink:0}}/>
+        <span style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Métricas Personalizadas</span>
+        <span style={{fontSize:10,color:T.textFaint,marginLeft:2}}>· {CUSTOM_METRICS_CATALOG.length} disponibles</span>
+        <button onClick={onOpen} style={{marginLeft:"auto",padding:"5px 13px",background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:6,color:"#a78bfa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+          {hasAny ? "✏ Editar" : "+ Agregar métricas"}
+        </button>
+      </div>
+      {hasAny ? (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10}}>
+          {resolved.map(m => (
+            <div key={m.id} style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10,padding:"13px 15px"}}>
+              <div style={{fontSize:10,color:T.textDim,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:7,lineHeight:1.4}}>{m.label}</div>
+              <div style={{fontSize:21,fontWeight:700,fontFamily:"monospace",color:T.textSub}}>{formatCmVal(m.getValue(account), m.fmt)}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div onClick={onOpen} style={{background:T.bg1,border:`2px dashed ${T.border2}`,borderRadius:10,padding:"30px 20px",textAlign:"center",cursor:"pointer"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="#a78bfa66"}
+          onMouseLeave={e=>e.currentTarget.style.borderColor=T.border2}>
+          <div style={{fontSize:24,marginBottom:8}}>📊</div>
+          <div style={{fontSize:13,fontWeight:600,color:T.textSub,marginBottom:4}}>Agregá métricas personalizadas</div>
+          <div style={{fontSize:12,color:T.textDim}}>Elegí del catálogo o creá tus propias fórmulas</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 function DashboardPage({ account }) {
   const T = useT();
+  const [showCM, setShowCM] = useState(false);
+  const [selectedCM, setSelectedCM] = useState(() => {
+    try { const s = localStorage.getItem('eb_custom_metrics_v1'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [customDefs, setCustomDefs] = useState(() => {
+    try { const s = localStorage.getItem('eb_custom_defs_v1'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const saveCM = (ids, defs) => {
+    setSelectedCM(ids);
+    setCustomDefs(defs);
+    try {
+      localStorage.setItem('eb_custom_metrics_v1', JSON.stringify(ids));
+      localStorage.setItem('eb_custom_defs_v1', JSON.stringify(defs));
+    } catch {}
+  };
+
   if (!account) return <div style={{padding:40,textAlign:"center",color:T.textFaint,fontSize:14}}>Seleccioná una cuenta para continuar.</div>;
   const f = account.funnel||{creativos:{},acciones:{},conversion:{}};
   const g = account.goals||{roas:3,cpa:10,ctr:1.5,budget:1000};
@@ -2537,32 +4224,39 @@ function DashboardPage({ account }) {
     <div className="page-pad" style={{padding:"20px 24px"}}>
       <PhaseBlock color="#60a5fa" title="CREATIVOS"
         metrics={[
-          {label:"Alcance",value:cr.alcance||0,type:"num"},
-          {label:"Impresiones",value:cr.impresiones||0,type:"num"},
-          {label:"CTR Único",value:cr.ctrUnico||0,type:"%",goal:g.ctr},
-          {label:"Clics en Enlace",value:cr.clicsEnlace||0,type:"num"},
-          {label:"CPM",value:cr.cpm||0,type:"$",inv:true},
+          {label:"Alcance",          value:cr.alcance||0,          type:"num"},
+          {label:"Impresiones",      value:cr.impresiones||0,      type:"num"},
+          {label:"CTR Único",        value:cr.ctrUnico||0,         type:"%", goal:g.ctr},
+          {label:"Clics en Enlace",  value:cr.clicsEnlace||0,      type:"num"},
+          {label:"CPM",              value:cr.cpm||0,              type:"$", inv:true},
+          {label:"Clics Únicos Enlace", value:cr.clicsUnicosEnlace||0, type:"k"},
+          {label:"Frecuencia",       value:cr.frecuencia||0,       type:"x"},
         ]}
       />
       <PhaseBlock color="#f59e0b" title="ACCIONES EN TIENDA"
         metrics={[
-          {label:"Add to Cart",value:ac.addToCart||0,type:"num"},
-          {label:"Pagos Iniciados",value:ac.pagosIniciados||0,type:"num"},
-          {label:"Costo Pagos",value:ac.costoPagosIniciados||0,type:"$",inv:true},
+          {label:"Add to Cart",    value:ac.addToCart||0,           type:"num"},
+          {label:"Pagos Iniciados",value:ac.pagosIniciados||0,      type:"num"},
+          {label:"Costo Pagos",    value:ac.costoPagosIniciados||0, type:"$", inv:true},
         ]}
       />
       <PhaseBlock color="#4ade80" title="CONVERSIÓN"
         metrics={[
-          {label:"Inversión",value:cv.inversion||0,type:"$"},
-          {label:"Facturación",value:cv.facturacion||0,type:"$"},
-          {label:"Costo/Compra",value:cv.costoCompra||0,type:"$",inv:true,goal:g.cpa},
-          {label:"ROAS",value:cv.roas||0,type:"x",goal:g.roas},
-          {label:"Conversiones",value:cv.conversiones||0,type:"num"},
+          {label:"Inversión",      value:cv.inversion||0,    type:"$"},
+          {label:"Facturación",    value:cv.facturacion||0,  type:"$"},
+          {label:"Costo/Compra",   value:cv.costoCompra||0,  type:"$", inv:true, goal:g.cpa},
+          {label:"ROAS",           value:cv.roas||0,         type:"x", goal:g.roas},
+          {label:"Conversiones",   value:cv.conversiones||0, type:"num"},
+          {label:"Compras",        value:cv.conversiones||0, type:"k"},
+          {label:"Ticket Promedio",value:cv.ticketPromedio||0, type:"$"},
+          {label:"Tasa Conv. Web", value:cv.tasaConversionWeb||0, type:"%"},
         ]}
       />
       <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"16px 20px",marginTop:4}}>
         <PerfChart daily={account.daily||[]} color={account.color||"#e8572a"}/>
       </div>
+      <CustomMetricsSection account={account} selected={selectedCM} customDefs={customDefs} onOpen={()=>setShowCM(true)}/>
+      {showCM && <CustomMetricsModal selected={selectedCM} customDefs={customDefs} onSave={(ids,defs)=>{saveCM(ids,defs);setShowCM(false);}} onClose={()=>setShowCM(false)}/>}
     </div>
   );
 }
@@ -2593,6 +4287,7 @@ export default function App() {
     return { preset:"last_30", ...getPresetRange("last_30") };
   });
   const [metaLoading, setMetaLoading] = useState(false);
+  const [metaError, setMetaError] = useState(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
 
   function toast(msg, type="success") {
@@ -2634,9 +4329,14 @@ export default function App() {
       return;
     }
 
+    // loaded evita que un TOKEN_REFRESHED/SIGNED_IN secundario re-ejecute
+    // loadUserData y pise la página en la que está el usuario
+    let loaded = false;
+
     // Verificar sesión: solo chequea si hay sesión activa, NO bloquea en carga de datos
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
+        loaded = true;
         // Hay sesión: mostrar app de inmediato, cargar datos en background
         const u = { id: session.user.id, email: session.user.email, name: session.user.email, role: "team" };
         setUser(u);
@@ -2645,13 +4345,19 @@ export default function App() {
       setAuthLoading(false);
     }).catch(() => setAuthLoading(false));
 
-    // Escuchar login/logout futuros
+    // Escuchar login/logout futuros.
+    // IMPORTANTE: no re-ejecutar loadUserData si ya cargamos datos (evita reset al renovar token)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN') {
-        const u = { id: session.user.id, email: session.user.email, name: session.user.email, role: "team" };
-        setUser(u);
-        loadUserData(session.user.id, session.user.email).catch(console.error);
+        if (!loaded) {
+          // Login real (no renovación de token)
+          loaded = true;
+          const u = { id: session.user.id, email: session.user.email, name: session.user.email, role: "team" };
+          setUser(u);
+          loadUserData(session.user.id, session.user.email).catch(console.error);
+        }
       } else if (event === 'SIGNED_OUT') {
+        loaded = false;
         setUser(null);
         setAllAccounts([]);
         setAllUsers([]);
@@ -2680,16 +4386,18 @@ export default function App() {
     setUser(userObj);
 
     // 2. Cuentas + meta_configs
+    // Master: ve todas. Team y Client: solo las que tienen en account_access
     try {
       let accs = [];
-      if (role === "master" || role === "team") {
+      if (role === "master") {
         const { data } = await Promise.race([supabase.from("accounts").select("*").order("name"), t(5000)]);
         accs = data || [];
       } else {
+        // team y client: solo cuentas asignadas
         const { data: access } = await Promise.race([supabase.from("account_access").select("account_id").eq("profile_id", userId), t(5000)]);
         const ids = (access||[]).map(a=>a.account_id);
         if (ids.length > 0) {
-          const { data } = await Promise.race([supabase.from("accounts").select("*").in("id", ids), t(5000)]);
+          const { data } = await Promise.race([supabase.from("accounts").select("*").in("id", ids).order("name"), t(5000)]);
           accs = data || [];
         }
       }
@@ -2807,23 +4515,28 @@ export default function App() {
       const tr = JSON.stringify({ since: from, until: to });
       // outbound_clicks = "Clics en Enlace" real (excluye reacciones/shares)
       // unique_ctr      = "CTR Único" real
-      const fields = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,website_purchase_roas,purchase_roas";
+      const fields = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_outbound_clicks,frequency,clicks,website_purchase_roas,purchase_roas,video_thruplay_watched_actions,video_avg_time_watched_actions";
 
       const mkParams = extra => new URLSearchParams({ access_token: token, fields, time_range: tr, ...extra }).toString();
 
       const campFields = "campaign_name,campaign_id,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr";
-      const adInsFields = "ad_id,ad_name,adset_name,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,frequency,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_avg_time_watched_actions,video_thruplay_watched_actions";
+      const adInsFields = "ad_id,ad_name,adset_name,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,frequency,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_avg_time_watched_actions,video_thruplay_watched_actions";
 
       // PASO 1: 5 llamadas en paralelo (sin metadata de ads — se obtiene después)
+      const META_V = "v22.0";
       const [insJson, dailyJson, campJson, campNamesJson, adInsJson] = await Promise.all([
-        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${mkParams({ level:"account" })}`).then(r=>r.json()),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${mkParams({ level:"account", time_increment:"1" })}`).then(r=>r.json()),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${new URLSearchParams({ access_token:token, fields:campFields, time_range:tr, level:"campaign" })}`).then(r=>r.json()),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/campaigns?${new URLSearchParams({ access_token:token, fields:"id,name,status", limit:"200" })}`).then(r=>r.json()),
-        fetch(`https://graph.facebook.com/v21.0/${accId}/insights?${new URLSearchParams({ access_token:token, fields:adInsFields, time_range:tr, level:"ad", limit:"200" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${mkParams({ level:"account" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${mkParams({ level:"account", time_increment:"1" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({ access_token:token, fields:campFields, time_range:tr, level:"campaign" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/campaigns?${new URLSearchParams({ access_token:token, fields:"id,name,status", limit:"200" })}`).then(r=>r.json()),
+        fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({ access_token:token, fields:adInsFields, time_range:tr, level:"ad", limit:"200" })}`).then(r=>r.json()),
       ]);
 
-      if (insJson.error) throw new Error(`[${insJson.error.code}] ${insJson.error.message}`);
+      // Verificar errores en TODOS los requests, no solo insJson
+      if (insJson.error)     throw new Error(`Cuenta: [${insJson.error.code}] ${insJson.error.message}`);
+      if (campNamesJson.error) throw new Error(`Campañas: [${campNamesJson.error.code}] ${campNamesJson.error.message}`);
+      if (campJson.error)    throw new Error(`Insights campañas: [${campJson.error.code}] ${campJson.error.message}`);
+      if (adInsJson.error)   throw new Error(`Creativos: [${adInsJson.error.code}] ${adInsJson.error.message}`);
 
       // PASO 2: obtener metadata de exactamente los ads que tienen insights.
       // NO usar /ads?limit=200 — eso trae los primeros 200 sin filtrar por período
@@ -2839,7 +4552,7 @@ export default function App() {
         for (let i = 0; i < adIds.length; i += 50) {
           const ids = adIds.slice(i, i + 50).join(",");
           batches.push(
-            fetch(`https://graph.facebook.com/v21.0/?ids=${ids}&fields=${adMetaFields}&access_token=${token}`)
+            fetch(`https://graph.facebook.com/${META_V}/?ids=${ids}&fields=${adMetaFields}&access_token=${token}`)
               .then(r => r.json())
           );
         }
@@ -2899,6 +4612,26 @@ export default function App() {
         return parseInt(field || 0);
       };
 
+      // gv: busca por action_type (soporta múltiples tipos, devuelve el primero con valor > 0)
+      const gv = (arr, ...types) => {
+        if (!arr) return 0;
+        for (const t of types) {
+          const v = parseFloat(arr.find(a => a.action_type === t)?.value || 0);
+          if (v > 0) return v;
+        }
+        return 0;
+      };
+      // gvVid: suma todos los valores de un campo de video (robusto ante cambios de action_type)
+      const gvVid = arr => {
+        if (!arr || !arr.length) return 0;
+        return arr.reduce((acc, a) => acc + parseFloat(a.value || 0), 0);
+      };
+
+      const LEAD_PRIORITY = [
+        "lead", "offsite_conversion.fb_pixel_lead",
+        "onsite_conversion.lead_grouped", "leadgen_other",
+      ];
+
       const s = insJson.data?.[0] || {};
       const spend = parseFloat(s.spend||0);
       const conv  = gaFirst(s.actions,       PURCHASE_PRIORITY);
@@ -2910,26 +4643,67 @@ export default function App() {
       }
       const cart     = gaFirst(s.actions, CART_PRIORITY);
       const checkout = gaFirst(s.actions, CHECKOUT_PRIORITY);
+      const leads    = gaFirst(s.actions, LEAD_PRIORITY);
+
+      // Acciones sociales
+      const reacciones              = gv(s.actions, "post_reaction", "like_reaction");
+      const comentarios             = gv(s.actions, "comment");
+      const compartidos             = gv(s.actions, "post");
+      const meLikesPagina           = gv(s.actions, "like");
+      const fotosVistas             = gv(s.actions, "photo_view");
+      const conversacionesIniciadas = gv(s.actions, "onsite_conversion.messaging_conversation_started_7d");
+      const nuevasConversaciones    = gv(s.actions, "onsite_conversion.messaging_first_reply");
+
+      // Video a nivel de cuenta — video_view viene del array actions (campo ya solicitado)
+      const v3sAccount    = gv(s.actions, "video_view");
+      const videoViews2s  = 0; // No existe campo válido de 2s en Meta Ads Insights API
+      const videoThruplay = gvVid(s.video_thruplay_watched_actions);
+      const rawAvgTAcc    = gvVid(s.video_avg_time_watched_actions);
+      const videoAvgTime  = rawAvgTAcc > 1000 ? rawAvgTAcc / 1000 : rawAvgTAcc;
+
+      // Derivadas
+      const clicsEnlace       = parseOutboundClicks(s.outbound_clicks);
+      const impresiones       = parseInt(s.impressions||0);
+      const ticketPromedio    = conv > 0 ? rev / conv : 0;
+      const tasaConversionWeb = clicsEnlace > 0 ? (conv / clicsEnlace) * 100 : 0;
 
       const funnel = {
         creativos: {
-          alcance:     parseInt(s.reach||0),
-          impresiones: parseInt(s.impressions||0),
-          ctrUnico:    parseFloat(s.unique_ctr||s.ctr||0),       // unique_ctr = CTR Único real
-          clicsEnlace: parseOutboundClicks(s.outbound_clicks),   // outbound_clicks = Clics en Enlace real
-          cpm:         parseFloat(s.cpm||0),
+          alcance:            parseInt(s.reach||0),
+          impresiones,
+          ctrUnico:           parseFloat(s.unique_ctr||s.ctr||0),
+          clicsEnlace,
+          cpm:                parseFloat(s.cpm||0),
+          clicsUnicosEnlace:  parseInt(s.unique_outbound_clicks||0),
+          frecuencia:         parseFloat(s.frequency||0),
+          clicsTodos:         parseInt(s.clicks||0),
+          ctrTodos:           parseFloat(s.ctr||0),
+          cpcTodos:           parseFloat(s.cpc||0),
+          cpcEnlace:          clicsEnlace > 0 ? spend / clicsEnlace : 0,
+          videoPlays:         v3sAccount,
+          videoViews2s,
+          videoThruplay,
+          videoAvgTime,
         },
         acciones: {
           addToCart:            cart,
           pagosIniciados:       checkout,
           costoPagosIniciados:  checkout > 0 ? spend / checkout : 0,
+          costoCarrito:         cart > 0 ? spend / cart : 0,
+          leads,
+          costoLead:            leads > 0 ? spend / leads : 0,
+          reacciones, comentarios, compartidos,
+          meLikesPagina, fotosVistas,
+          conversacionesIniciadas, nuevasConversaciones,
         },
         conversion: {
-          inversion:    spend,
-          facturacion:  rev,
-          costoCompra:  conv > 0 ? spend / conv : 0,
-          roas:         spend > 0 ? rev / spend : 0,
-          conversiones: conv,
+          inversion:          spend,
+          facturacion:        rev,
+          costoCompra:        conv > 0 ? spend / conv : 0,
+          roas:               spend > 0 ? rev / spend : 0,
+          conversiones:       conv,
+          ticketPromedio,
+          tasaConversionWeb,
         },
       };
 
@@ -2975,31 +4749,15 @@ export default function App() {
       });
 
       // adMetaMap ya fue construido arriba con los IDs exactos de insights
+      // gv y gvVid definidos antes del funnel — reutilizados aquí para creativos
 
-      // gv busca por action_type específico (para acciones generales con múltiples tipos)
-      const gv = (arr, ...types) => {
-        if (!arr) return 0;
-        for (const t of types) {
-          const v = parseFloat(arr.find(a => a.action_type === t)?.value || 0);
-          if (v > 0) return v;
-        }
-        return 0;
-      };
-      // gvVid: para campos de video con un solo valor en el array (p25, p50, etc.).
-      // Meta puede cambiar el action_type name entre versiones — tomamos el primer valor del array.
-      const gvVid = arr => {
-        if (!arr || !arr.length) return 0;
-        // Intentar suma de todos los valores del array (evita perder datos por action_type desconocido)
-        const total = arr.reduce((s, a) => s + parseFloat(a.value || 0), 0);
-        return total;
-      };
       const creatives = (adInsJson.data||[]).map(row => {
         const meta = adMetaMap[row.ad_id] || {};
         const sp   = parseFloat(row.spend||0);
         const rv   = getPurchase(row.action_values);
         const cn   = getPurchase(row.actions);
         const impr = parseInt(row.impressions||0);
-        const v3s  = gv(row.video_play_actions, "video_view", "video_view_impressions");
+        const v3s  = gv(row.actions, "video_view");
         const p25  = gvVid(row.video_p25_watched_actions);
         const p50  = gvVid(row.video_p50_watched_actions);
         const p75  = gvVid(row.video_p75_watched_actions);
@@ -3010,7 +4768,8 @@ export default function App() {
         // Meta v16+ devuelve avg_time en milisegundos; versiones anteriores en segundos
         const avgT = rawAvgT > 1000 ? rawAvgT / 1000 : rawAvgT;
         const isVideo = v3s > 0;
-        const hookRate = impr > 0 ? (v3s / impr) * 100 : 0;
+        // Hook Rate = ThruPlays / total video views × 100 (único proxy válido disponible en Meta API)
+        const hookRate = v3s > 0 ? (thr / v3s) * 100 : 0;
         return {
           id: row.ad_id, name: row.ad_name || meta.name || row.ad_id,
           status: meta.status || "ACTIVE",
@@ -3052,10 +4811,12 @@ export default function App() {
       const payload = { funnel, daily, campaigns, creatives };
       setMetaCache(accountId, from, to, payload);
       setAllAccounts(prev => prev.map(a => a.id===accountId ? {...a, ...payload} : a));
+      setMetaError(null);
       const label = insJson.data?.length ? "Datos Meta actualizados ✓" : "Meta conectada — sin datos en el período seleccionado";
       toast(label, insJson.data?.length ? "success" : "info");
     } catch(e) {
       console.error("Meta API:", e);
+      setMetaError(e.message);
       toast("Error Meta API: " + e.message, "error");
     }
     setMetaLoading(false);
@@ -3119,7 +4880,22 @@ export default function App() {
       case "campaigns": return activeAccount ? <div style={{padding:"20px 24px"}}><CampaignsTable campaigns={activeAccount.campaigns||[]} goals={activeAccount.goals||{roas:3,cpa:10,ctr:1.5}}/></div> : noAcc;
       case "creatives": return activeAccount ? <CreativosModule account={activeAccount} goals={activeAccount.goals||{}}/> : noAcc;
       case "tasks":     return <TasksModule userAccounts={allAccounts} allUsers={allUsers} tasks={tasks} setTasks={setTasks} currentUser={user} activeProjectId={activeProjectId}/>;
+      case "audit":     return activeAccount
+        ? <AuditoriaPage
+            account={activeAccount}
+            currentUser={user}
+            allUsers={allUsers}
+            dateRange={dateRange}
+            T={T}
+            onTasksChanged={()=>{
+              supabase.from("tasks").select("*").order("created_at")
+                .then(({data})=>setTasks(data||[]));
+            }}
+          />
+        : noAcc;
+      case "ganancias": return <GananciasModule account={activeAccount} currentUser={user} T={T} onAccountUpdated={(updatedAcc)=>setAllAccounts(prev=>prev.map(a=>a.id===updatedAcc.id?{...a,...updatedAcc}:a))}/>;
       case "report":    return <ReportBuilder account={activeAccount} tasks={tasks} dateRange={dateRange} onDateRangeChange={rng=>{setDateRange(rng);const acc=allAccounts.find(a=>a.id===activeProjectId);if(acc?.meta_token)fetchMetaData(activeProjectId,acc.meta_token,acc.meta_ad_account_id,rng.from,rng.to);}}/>;
+      case "profit":    return <RentabilidadModule key={activeAccount?.id||"global"} account={activeAccount}/>;
       case "settings":  return canEdit ? <SettingsModule currentUser={user} allAccounts={allAccounts} allUsers={allUsers} setAllAccounts={setAllAccounts} setAllUsers={setAllUsers} toast={toast} onMetaSaved={(cfg,accId)=>{if(accId===activeProjectId){setAllAccounts(prev=>prev.map(a=>a.id===accId?{...a,...cfg}:a));}}}/> : null;
       default:          return null;
     }
@@ -3234,10 +5010,24 @@ export default function App() {
                 </span>
               )}
               {activeAccount?.meta_token && !metaLoading && (
-                <button onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)}
-                  style={{fontSize:11,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:600,WebkitTapHighlightColor:"transparent"}}>
-                  ↻ Sincronización
-                </button>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                  {metaError && (
+                    <div style={{display:"flex",alignItems:"center",gap:6,background:"#2d0a0a",border:"1px solid #991b1b",borderRadius:7,padding:"5px 10px",maxWidth:340}}>
+                      <span style={{fontSize:13,flexShrink:0}}>⚠</span>
+                      <span style={{fontSize:11,color:"#f87171",lineHeight:1.35,wordBreak:"break-word"}}>{metaError}</span>
+                      <button onClick={()=>setMetaError(null)} style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:14,lineHeight:1,padding:0,flexShrink:0,opacity:0.7}}>×</button>
+                    </div>
+                  )}
+                  <button
+                    onClick={e=>{
+                      if(e.shiftKey){ clearAllMetaCache(); toast("Cache limpiado — refetch forzado","warn"); }
+                      fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to);
+                    }}
+                    title="Click: sync · Shift+Click: limpiar cache y forzar refetch"
+                    style={{fontSize:11,background:metaError?"#2d0a0a":"#16a34a22",border:`1px solid ${metaError?"#991b1b":"#16a34a44"}`,color:metaError?"#f87171":"#16a34a",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:600,WebkitTapHighlightColor:"transparent"}}>
+                    {metaError ? "⚠ Error — Reintentar" : "↻ Sincronización"}
+                  </button>
+                </div>
               )}
               {!isSupabaseConfigured && (
                 <span style={{fontSize:11,background:T.warn.bg,border:`1px solid ${T.warn.border}`,color:T.warn.text,borderRadius:6,padding:"3px 10px"}}>Demo</span>
@@ -3306,7 +5096,18 @@ export default function App() {
             <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
               {metaLoading && <span style={{fontSize:11,background:"#3b82f622",border:"1px solid #3b82f644",color:"#60a5fa",borderRadius:6,padding:"3px 10px"}}>Actualizando Meta...</span>}
               {activeAccount?.meta_token && !metaLoading && (
-                <span style={{fontSize:11,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"3px 10px",cursor:"pointer"}} onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)}>↻ Sincronización</span>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                  {metaError && (
+                    <div style={{display:"flex",alignItems:"center",gap:6,background:"#2d0a0a",border:"1px solid #991b1b",borderRadius:7,padding:"5px 10px",maxWidth:320}}>
+                      <span style={{fontSize:12}}>⚠</span>
+                      <span style={{fontSize:11,color:"#f87171",lineHeight:1.35,wordBreak:"break-word"}}>{metaError}</span>
+                      <button onClick={()=>setMetaError(null)} style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:14,padding:0,flexShrink:0,opacity:0.7}}>×</button>
+                    </div>
+                  )}
+                  <span style={{fontSize:11,background:metaError?"#2d0a0a":"#16a34a22",border:`1px solid ${metaError?"#991b1b":"#16a34a44"}`,color:metaError?"#f87171":"#16a34a",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontWeight:600}} title="Click: sync · Shift+Click: limpiar cache" onClick={e=>{if(e.shiftKey){clearAllMetaCache();toast("Cache limpiado","warn");}fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to);}}>
+                    {metaError ? "⚠ Error — Reintentar" : "↻ Sincronización"}
+                  </span>
+                </div>
               )}
             </div>
           </div>

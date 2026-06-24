@@ -4,3 +4,6 @@ dist
 .env.local
 .DS_Store
 .vercel
+.claude/
+node_modules/
+dist/

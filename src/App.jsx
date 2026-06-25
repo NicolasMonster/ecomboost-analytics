@@ -306,13 +306,21 @@ function PhaseBlock({ color, title, metrics }) {
         <span style={{fontSize:12,fontWeight:800,color:"#fff"}}>{title}</span>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10}} className="phase-grid phase-metrics-grid">
-        {metrics.map(({label,value,type,goal,inv,highlight})=>{
+        {metrics.map(({label,value,type,goal,inv,highlight,prev})=>{
           const c = goal ? sc(value,goal,inv,T) : null;
           return (
             <div key={label} style={{background:T.bg1,border:`1px solid ${c?c.border:T.border}`,borderRadius:10,padding:"13px 15px",position:"relative",overflow:"hidden"}}>
               {c&&<div style={{position:"absolute",top:0,left:0,right:0,height:2,background:c.text,opacity:0.65}}/>}
               <div style={{fontSize:10,color:T.textDim,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:7}}>{label}</div>
               <div style={{fontSize:21,fontWeight:700,fontFamily:"monospace",color:c?c.text:highlight||T.textSub}}>{fN(value,type)}</div>
+              {prev != null && (() => {
+                const delta = prev > 0 ? ((value - prev) / prev * 100) : (value > 0 ? 100 : 0);
+                const isGood = inv ? delta <= 0 : delta >= 0;
+                const col = delta === 0 ? T.textFaint : isGood ? T.ok.text : T.bad.text;
+                return <div style={{fontSize:10,marginTop:3,fontWeight:600,color:col}} title={`Período anterior: ${fN(prev,type)}`}>
+                  {delta > 0 ? "▲" : delta < 0 ? "▼" : "="} {Math.abs(delta).toFixed(1)}%
+                </div>;
+              })()}
               {goal&&<div style={{fontSize:10,color:T.textFaint,marginTop:3}}>Obj: <span style={{color:T.textDim}}>{fN(goal,type)}</span></div>}
             </div>
           );
@@ -323,25 +331,35 @@ function PhaseBlock({ color, title, metrics }) {
 }
 
 // ─── PERF CHART ───────────────────────────────────────────────────────────────
-function PerfChart({ daily, color }) {
+function PerfChart({ daily, color, compareDaily }) {
   const T = useT();
   const [m, setM] = useState("roas");
   const opts = [["roas","ROAS",color],["revenue","Revenue","#60a5fa"],["spend","Gasto","#f59e0b"],["conversions","Conv.","#a78bfa"]];
   const act = opts.find(o=>o[0]===m);
+  const merged = useMemo(() => {
+    if (!compareDaily?.length) return daily;
+    return daily.map((d, i) => ({ ...d, [`prev_${m}`]: compareDaily[i]?.[m] ?? null }));
+  }, [daily, compareDaily, m]);
   return (
     <div>
-      <div style={{display:"flex",gap:7,marginBottom:12,flexWrap:"wrap"}}>
+      <div style={{display:"flex",gap:7,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
         {opts.map(([k,l,c])=>(
           <button key={k} onClick={()=>setM(k)} style={{padding:"4px 10px",borderRadius:5,border:"1px solid",cursor:"pointer",fontSize:11,background:m===k?c+"20":"none",borderColor:m===k?c:T.border2,color:m===k?c:T.textDim}}>{l}</button>
         ))}
+        {compareDaily?.length > 0 && (
+          <span style={{marginLeft:"auto",fontSize:10,color:"#60a5fa",display:"flex",alignItems:"center",gap:4}}>
+            <span style={{width:16,height:0,borderTop:"2px dashed #60a5fa",display:"inline-block"}}/>Período anterior
+          </span>
+        )}
       </div>
       <ResponsiveContainer width="100%" height={185}>
-        <LineChart data={daily} margin={{top:4,right:8,left:0,bottom:4}}>
+        <LineChart data={merged} margin={{top:4,right:8,left:0,bottom:4}}>
           <CartesianGrid strokeDasharray="3 3" stroke={T.border}/>
           <XAxis dataKey="day" tick={{fontSize:10,fill:T.textDim}} axisLine={false} tickLine={false}/>
           <YAxis tick={{fontSize:10,fill:T.textDim}} axisLine={false} tickLine={false} width={34}/>
           <Tooltip contentStyle={{background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,fontSize:12,color:T.text}} labelStyle={{color:T.textMuted}} itemStyle={{color:act[2]}}/>
-          <Line type="monotone" dataKey={m} stroke={act[2]} strokeWidth={2.5} dot={{fill:act[2],r:3}} activeDot={{r:5}}/>
+          <Line type="monotone" dataKey={m} stroke={act[2]} strokeWidth={2.5} dot={{fill:act[2],r:3}} activeDot={{r:5}} name="Actual"/>
+          {compareDaily?.length > 0 && <Line type="monotone" dataKey={`prev_${m}`} stroke="#60a5fa" strokeWidth={1.5} strokeDasharray="5 3" dot={false} name="Anterior"/>}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -2058,12 +2076,44 @@ const DATE_PRESETS = [
   {id:"custom",     label:"Personalizado"},
 ];
 
+function getCompareRange(mainFrom, mainTo, type) {
+  const from = new Date(mainFrom + "T00:00:00");
+  const to = new Date(mainTo + "T00:00:00");
+  const days = Math.round((to - from) / 86400000);
+  switch(type) {
+    case "previous": {
+      const cTo = new Date(from); cTo.setDate(cTo.getDate() - 1);
+      const cFrom = new Date(cTo); cFrom.setDate(cFrom.getDate() - days);
+      return { from: fmtDate(cFrom), to: fmtDate(cTo) };
+    }
+    case "prev_month": {
+      const cFrom = new Date(from); cFrom.setMonth(cFrom.getMonth() - 1);
+      const cTo = new Date(to); cTo.setMonth(cTo.getMonth() - 1);
+      return { from: fmtDate(cFrom), to: fmtDate(cTo) };
+    }
+    case "prev_year": {
+      const cFrom = new Date(from); cFrom.setFullYear(cFrom.getFullYear() - 1);
+      const cTo = new Date(to); cTo.setFullYear(cTo.getFullYear() - 1);
+      return { from: fmtDate(cFrom), to: fmtDate(cTo) };
+    }
+    default: return null;
+  }
+}
+const COMPARE_PRESETS = [
+  {id:"previous",   label:"Período anterior"},
+  {id:"prev_month", label:"Mismo período, mes anterior"},
+  {id:"prev_year",  label:"Mismo período, año anterior"},
+  {id:"custom",     label:"Personalizado"},
+];
+
 // ─── DATE RANGE PICKER ────────────────────────────────────────────────────────
-function DateRangePicker({ dateRange, onChange }) {
+function DateRangePicker({ dateRange, onChange, compareRange, onCompareChange }) {
   const T = useT();
   const [open, setOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(dateRange.from);
   const [customTo,   setCustomTo]   = useState(dateRange.to);
+  const [compCustomFrom, setCompCustomFrom] = useState(compareRange?.from || "");
+  const [compCustomTo,   setCompCustomTo]   = useState(compareRange?.to || "");
 
   function selectPreset(id) {
     if (id === "custom") { onChange({...dateRange, preset:"custom"}); return; }
@@ -2075,6 +2125,21 @@ function DateRangePicker({ dateRange, onChange }) {
     setOpen(false);
   }
 
+  const comparing = !!compareRange;
+  function toggleCompare() {
+    if (comparing) { onCompareChange?.(null); }
+    else { onCompareChange?.({ preset:"previous", ...getCompareRange(dateRange.from, dateRange.to, "previous") }); }
+  }
+  function selectComparePreset(id) {
+    if (id === "custom") { onCompareChange?.({...compareRange, preset:"custom"}); return; }
+    onCompareChange?.({ preset: id, ...getCompareRange(dateRange.from, dateRange.to, id) });
+    setOpen(false);
+  }
+  function applyCompareCustom() {
+    onCompareChange?.({ preset:"custom", from:compCustomFrom, to:compCustomTo });
+    setOpen(false);
+  }
+
   const label = DATE_PRESETS.find(p=>p.id===dateRange.preset)?.label || `${dateRange.from} → ${dateRange.to}`;
   const btnStyle = (active) => ({
     display:"block", width:"100%", textAlign:"left", padding:"8px 12px",
@@ -2083,11 +2148,14 @@ function DateRangePicker({ dateRange, onChange }) {
     color: active ? "#e8572a" : T.text,
     cursor:"pointer", fontSize:13, fontWeight: active ? 700 : 400,
   });
+  const compBtnStyle = (active) => ({ ...btnStyle(active), color: active ? "#60a5fa" : T.text, background: active ? "#60a5fa22" : "transparent" });
 
   return (
     <div style={{position:"relative"}}>
-      <button onClick={()=>setOpen(!open)} style={{padding:"6px 12px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:8,color:T.text,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-        📅 {label} <span style={{color:T.textMuted,fontSize:10}}>▼</span>
+      <button onClick={()=>setOpen(!open)} style={{padding:"6px 12px",background:T.bg2,border:`1px solid ${comparing?"#60a5fa55":T.border2}`,borderRadius:8,color:T.text,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+        📅 {label}
+        {comparing && <span style={{color:"#60a5fa",fontSize:10}}>vs {COMPARE_PRESETS.find(p=>p.id===compareRange?.preset)?.label || `${compareRange.from} → ${compareRange.to}`}</span>}
+        <span style={{color:T.textMuted,fontSize:10}}>▼</span>
       </button>
       {open && <>
         <div style={{position:"fixed",inset:0,zIndex:998}} onClick={()=>setOpen(false)}/>
@@ -2106,6 +2174,36 @@ function DateRangePicker({ dateRange, onChange }) {
                 <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:6,padding:"5px 8px",color:T.text,fontSize:12,outline:"none"}}/>
               </div>
               <button onClick={applyCustom} disabled={!customFrom||!customTo||customFrom>customTo} style={{width:"100%",padding:"7px",background:"#e8572a",border:"none",borderRadius:7,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Aplicar</button>
+            </div>
+          )}
+          {onCompareChange && (
+            <div style={{borderTop:`1px solid ${T.border}`,marginTop:6,paddingTop:6}}>
+              <button onClick={toggleCompare} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 12px",background:"none",border:"none",cursor:"pointer",borderRadius:7}}>
+                <div style={{width:14,height:14,borderRadius:3,border:`2px solid ${comparing?"#60a5fa":T.border2}`,background:comparing?"#60a5fa":"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {comparing && <span style={{color:"#fff",fontSize:9,lineHeight:1,fontWeight:900}}>✓</span>}
+                </div>
+                <span style={{fontSize:12,color:comparing?"#60a5fa":T.textMuted,fontWeight:comparing?600:400}}>Comparar con otro período</span>
+              </button>
+              {comparing && (
+                <div style={{paddingLeft:4,paddingRight:4}}>
+                  {COMPARE_PRESETS.map(p=>(
+                    <button key={p.id} style={compBtnStyle(compareRange?.preset===p.id)} onClick={()=>selectComparePreset(p.id)}>{p.label}</button>
+                  ))}
+                  {compareRange?.preset==="custom" && (
+                    <div style={{padding:"10px 12px",borderTop:`1px solid ${T.border}`,marginTop:4}}>
+                      <div style={{marginBottom:8}}>
+                        <div style={{fontSize:11,color:T.textMuted,marginBottom:3}}>Desde</div>
+                        <input type="date" value={compCustomFrom} onChange={e=>setCompCustomFrom(e.target.value)} style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:6,padding:"5px 8px",color:T.text,fontSize:12,outline:"none"}}/>
+                      </div>
+                      <div style={{marginBottom:10}}>
+                        <div style={{fontSize:11,color:T.textMuted,marginBottom:3}}>Hasta</div>
+                        <input type="date" value={compCustomTo} onChange={e=>setCompCustomTo(e.target.value)} style={{width:"100%",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:6,padding:"5px 8px",color:T.text,fontSize:12,outline:"none"}}/>
+                      </div>
+                      <button onClick={applyCompareCustom} disabled={!compCustomFrom||!compCustomTo||compCustomFrom>compCustomTo} style={{width:"100%",padding:"7px",background:"#60a5fa",border:"none",borderRadius:7,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Aplicar comparación</button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -4198,7 +4296,7 @@ function CustomMetricsSection({ account, selected, customDefs, onOpen }) {
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
-function DashboardPage({ account }) {
+function DashboardPage({ account, compareData }) {
   const T = useT();
   const [showCM, setShowCM] = useState(false);
   const [selectedCM, setSelectedCM] = useState(() => {
@@ -4220,40 +4318,48 @@ function DashboardPage({ account }) {
   const f = account.funnel||{creativos:{},acciones:{},conversion:{}};
   const g = account.goals||{roas:3,cpa:10,ctr:1.5,budget:1000};
   const cr = f.creativos||{}; const ac = f.acciones||{}; const cv = f.conversion||{};
+  const cf = compareData?.funnel || null;
+  const ccr = cf?.creativos||{}; const cac = cf?.acciones||{}; const ccv = cf?.conversion||{};
+  const p = (v) => cf ? (v||0) : undefined;
   return (
     <div className="page-pad" style={{padding:"20px 24px"}}>
+      {compareData && (
+        <div style={{background:"#60a5fa11",border:"1px solid #60a5fa33",borderRadius:8,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#60a5fa",display:"flex",alignItems:"center",gap:6}}>
+          📊 Comparando con el período {compareData.from} → {compareData.to}
+        </div>
+      )}
       <PhaseBlock color="#60a5fa" title="CREATIVOS"
         metrics={[
-          {label:"Alcance",          value:cr.alcance||0,          type:"num"},
-          {label:"Impresiones",      value:cr.impresiones||0,      type:"num"},
-          {label:"CTR Único",        value:cr.ctrUnico||0,         type:"%", goal:g.ctr},
-          {label:"Clics en Enlace",  value:cr.clicsEnlace||0,      type:"num"},
-          {label:"CPM",              value:cr.cpm||0,              type:"$", inv:true},
-          {label:"Clics Únicos Enlace", value:cr.clicsUnicosEnlace||0, type:"k"},
-          {label:"Frecuencia",       value:cr.frecuencia||0,       type:"x"},
+          {label:"Alcance",          value:cr.alcance||0,          type:"num", prev:p(ccr.alcance)},
+          {label:"Impresiones",      value:cr.impresiones||0,      type:"num", prev:p(ccr.impresiones)},
+          {label:"CTR Único",        value:cr.ctrUnico||0,         type:"%", goal:g.ctr, prev:p(ccr.ctrUnico)},
+          {label:"Clics en Enlace",  value:cr.clicsEnlace||0,      type:"num", prev:p(ccr.clicsEnlace)},
+          {label:"CPM",              value:cr.cpm||0,              type:"$", inv:true, prev:p(ccr.cpm)},
+          {label:"Clics Únicos Enlace", value:cr.clicsUnicosEnlace||0, type:"k", prev:p(ccr.clicsUnicosEnlace)},
+          {label:"Frecuencia",       value:cr.frecuencia||0,       type:"x", prev:p(ccr.frecuencia)},
         ]}
       />
       <PhaseBlock color="#f59e0b" title="ACCIONES EN TIENDA"
         metrics={[
-          {label:"Add to Cart",    value:ac.addToCart||0,           type:"num"},
-          {label:"Pagos Iniciados",value:ac.pagosIniciados||0,      type:"num"},
-          {label:"Costo Pagos",    value:ac.costoPagosIniciados||0, type:"$", inv:true},
+          {label:"Add to Cart",    value:ac.addToCart||0,           type:"num", prev:p(cac.addToCart)},
+          {label:"Pagos Iniciados",value:ac.pagosIniciados||0,      type:"num", prev:p(cac.pagosIniciados)},
+          {label:"Costo Pagos",    value:ac.costoPagosIniciados||0, type:"$", inv:true, prev:p(cac.costoPagosIniciados)},
         ]}
       />
       <PhaseBlock color="#4ade80" title="CONVERSIÓN"
         metrics={[
-          {label:"Inversión",      value:cv.inversion||0,    type:"$"},
-          {label:"Facturación",    value:cv.facturacion||0,  type:"$"},
-          {label:"Costo/Compra",   value:cv.costoCompra||0,  type:"$", inv:true, goal:g.cpa},
-          {label:"ROAS",           value:cv.roas||0,         type:"x", goal:g.roas},
-          {label:"Conversiones",   value:cv.conversiones||0, type:"num"},
-          {label:"Compras",        value:cv.conversiones||0, type:"k"},
-          {label:"Ticket Promedio",value:cv.ticketPromedio||0, type:"$"},
-          {label:"Tasa Conv. Web", value:cv.tasaConversionWeb||0, type:"%"},
+          {label:"Inversión",      value:cv.inversion||0,    type:"$", prev:p(ccv.inversion)},
+          {label:"Facturación",    value:cv.facturacion||0,  type:"$", prev:p(ccv.facturacion)},
+          {label:"Costo/Compra",   value:cv.costoCompra||0,  type:"$", inv:true, goal:g.cpa, prev:p(ccv.costoCompra)},
+          {label:"ROAS",           value:cv.roas||0,         type:"x", goal:g.roas, prev:p(ccv.roas)},
+          {label:"Conversiones",   value:cv.conversiones||0, type:"num", prev:p(ccv.conversiones)},
+          {label:"Compras",        value:cv.conversiones||0, type:"k", prev:p(ccv.conversiones)},
+          {label:"Ticket Promedio",value:cv.ticketPromedio||0, type:"$", prev:p(ccv.ticketPromedio)},
+          {label:"Tasa Conv. Web", value:cv.tasaConversionWeb||0, type:"%", prev:p(ccv.tasaConversionWeb)},
         ]}
       />
       <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"16px 20px",marginTop:4}}>
-        <PerfChart daily={account.daily||[]} color={account.color||"#e8572a"}/>
+        <PerfChart daily={account.daily||[]} color={account.color||"#e8572a"} compareDaily={compareData?.daily}/>
       </div>
       <CustomMetricsSection account={account} selected={selectedCM} customDefs={customDefs} onOpen={()=>setShowCM(true)}/>
       {showCM && <CustomMetricsModal selected={selectedCM} customDefs={customDefs} onSave={(ids,defs)=>{saveCM(ids,defs);setShowCM(false);}} onClose={()=>setShowCM(false)}/>}
@@ -4288,6 +4394,8 @@ export default function App() {
   });
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError, setMetaError] = useState(null);
+  const [compareRange, setCompareRange] = useState(null);
+  const [compareData, setCompareData] = useState(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
 
   function toast(msg, type="success") {
@@ -4487,6 +4595,65 @@ export default function App() {
     if (!acc?.meta_token || !acc?.meta_ad_account_id) return;
     fetchMetaData(activeProjectId, acc.meta_token, acc.meta_ad_account_id, dateRange.from, dateRange.to);
   }, [activeProjectId, dateRange, allAccounts.length]);
+
+  // Fetch del período de comparación (account-level + daily, liviano)
+  useEffect(() => {
+    if (!compareRange) { setCompareData(null); return; }
+    const acc = allAccounts.find(a => a.id === activeProjectId);
+    if (!acc?.meta_token || !acc?.meta_ad_account_id) { setCompareData(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const accId = acc.meta_ad_account_id.startsWith("act_") ? acc.meta_ad_account_id : `act_${acc.meta_ad_account_id}`;
+        const tr = JSON.stringify({ since: compareRange.from, until: compareRange.to });
+        const fields = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_outbound_clicks,frequency,website_purchase_roas,purchase_roas";
+        const META_V = "v22.0";
+        const mk = extra => new URLSearchParams({ access_token: acc.meta_token, fields, time_range: tr, ...extra }).toString();
+        const [insJson, dailyJson] = await Promise.all([
+          fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${mk({ level:"account" })}`).then(r=>r.json()),
+          fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${mk({ level:"account", time_increment:"1" })}`).then(r=>r.json()),
+        ]);
+        if (cancelled) return;
+        if (insJson.error) { console.error("Compare fetch:", insJson.error); return; }
+        const PURCHASE = ["purchase","offsite_conversion.fb_pixel_purchase","omni_purchase","app_custom_event.fb_mobile_purchase"];
+        const CART = ["add_to_cart","offsite_conversion.fb_pixel_add_to_cart","omni_add_to_cart"];
+        const CHECKOUT = ["initiate_checkout","offsite_conversion.fb_pixel_initiate_checkout","omni_initiated_checkout"];
+        const gaFirst = (arr, types) => { if (!arr) return 0; for (const t of types) { const v = parseFloat(arr.find(a=>a.action_type===t)?.value||0); if (v>0) return v; } return 0; };
+        const parseOC = f => { if (!f) return 0; if (Array.isArray(f)) return parseInt(f.find(x=>x.action_type==="outbound_click")?.value||f[0]?.value||0); return parseInt(f||0); };
+        const s = insJson.data?.[0] || {};
+        const spend = parseFloat(s.spend||0);
+        const conv = gaFirst(s.actions, PURCHASE);
+        let rev = gaFirst(s.action_values, PURCHASE);
+        if (rev === 0 && spend > 0) { const mr = parseFloat(s.website_purchase_roas?.[0]?.value||s.purchase_roas?.[0]?.value||0); if (mr>0) rev = mr*spend; }
+        const cart = gaFirst(s.actions, CART), checkout = gaFirst(s.actions, CHECKOUT);
+        const clicsEnlace = parseOC(s.outbound_clicks);
+        const funnel = {
+          creativos: {
+            alcance: parseInt(s.reach||0), impresiones: parseInt(s.impressions||0),
+            ctrUnico: parseFloat(s.unique_ctr||s.ctr||0), clicsEnlace, cpm: parseFloat(s.cpm||0),
+            clicsUnicosEnlace: parseInt(s.unique_outbound_clicks||0), frecuencia: parseFloat(s.frequency||0),
+          },
+          acciones: {
+            addToCart: cart, pagosIniciados: checkout,
+            costoPagosIniciados: checkout>0 ? spend/checkout : 0,
+          },
+          conversion: {
+            inversion: spend, facturacion: rev, costoCompra: conv>0 ? spend/conv : 0,
+            roas: spend>0 ? rev/spend : 0, conversiones: conv,
+            ticketPromedio: conv>0 ? rev/conv : 0,
+            tasaConversionWeb: clicsEnlace>0 ? (conv/clicsEnlace)*100 : 0,
+          },
+        };
+        const daily = (dailyJson.data||[]).map(d => {
+          const sp = parseFloat(d.spend||0), rv = gaFirst(d.action_values, PURCHASE), cn = gaFirst(d.actions, PURCHASE);
+          return { day:d.date_start, spend:sp, revenue:rv, roas:sp>0?rv/sp:0, conversions:cn,
+            impressions:parseInt(d.impressions||0), ctr:parseFloat(d.unique_ctr||d.ctr||0), cpm:parseFloat(d.cpm||0) };
+        });
+        setCompareData({ from: compareRange.from, to: compareRange.to, funnel, daily });
+      } catch(e) { if (!cancelled) console.error("Compare fetch:", e); }
+    })();
+    return () => { cancelled = true; };
+  }, [compareRange, activeProjectId, allAccounts.length]);
 
   async function handleSaveGoals(goals) {
     if (isSupabaseConfigured && supabase && activeProjectId) {
@@ -4876,7 +5043,7 @@ export default function App() {
     const noAcc = <div style={{padding:40,textAlign:"center",color:T.textFaint,fontSize:14}}>Seleccioná una cuenta para continuar.</div>;
     switch(page) {
       case "overview":  return <OverviewModule accounts={allAccounts} tasks={tasks} onSelect={id=>{setActiveProjectId(id);setPage("dashboard");}}/>;
-      case "dashboard": return <DashboardPage account={activeAccount}/>;
+      case "dashboard": return <DashboardPage account={activeAccount} compareData={compareData}/>;
       case "campaigns": return activeAccount ? <div style={{padding:"20px 24px"}}><CampaignsTable campaigns={activeAccount.campaigns||[]} goals={activeAccount.goals||{roas:3,cpa:10,ctr:1.5}}/></div> : noAcc;
       case "creatives": return activeAccount ? <CreativosModule account={activeAccount} goals={activeAccount.goals||{}}/> : noAcc;
       case "tasks":     return <TasksModule userAccounts={allAccounts} allUsers={allUsers} tasks={tasks} setTasks={setTasks} currentUser={user} activeProjectId={activeProjectId}/>;
@@ -5002,7 +5169,7 @@ export default function App() {
                 </button>
               )}
               {["dashboard","campaigns","creatives"].includes(page) && (
-                <span className="hide-mobile"><DateRangePicker dateRange={dateRange} onChange={setDateRange}/></span>
+                <span className="hide-mobile"><DateRangePicker dateRange={dateRange} onChange={setDateRange} compareRange={compareRange} onCompareChange={setCompareRange}/></span>
               )}
               {metaLoading && (
                 <span style={{fontSize:11,background:"#3b82f622",border:"1px solid #3b82f644",color:"#60a5fa",borderRadius:6,padding:"3px 10px"}}>
@@ -5037,7 +5204,7 @@ export default function App() {
           {/* Barra de fecha+sync para móvil — debajo del topbar */}
           {["dashboard","campaigns","creatives"].includes(page) && activeAccount && (
             <div className="mobile-date-bar" style={{display:"none",alignItems:"center",gap:8,padding:"8px 14px",background:T.bg2,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-              <DateRangePicker dateRange={dateRange} onChange={rng=>{setDateRange(rng);const acc=allAccounts.find(a=>a.id===activeProjectId);if(acc?.meta_token)fetchMetaData(activeProjectId,acc.meta_token,acc.meta_ad_account_id,rng.from,rng.to);}}/>
+              <DateRangePicker dateRange={dateRange} onChange={rng=>{setDateRange(rng);const acc=allAccounts.find(a=>a.id===activeProjectId);if(acc?.meta_token)fetchMetaData(activeProjectId,acc.meta_token,acc.meta_ad_account_id,rng.from,rng.to);}} compareRange={compareRange} onCompareChange={setCompareRange}/>
               {activeAccount.meta_token && !metaLoading && (
                 <button onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)}
                   style={{flexShrink:0,fontSize:12,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontWeight:700,WebkitTapHighlightColor:"transparent"}}>

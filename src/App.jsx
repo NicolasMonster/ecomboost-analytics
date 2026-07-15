@@ -10,6 +10,63 @@ import * as reportStore from "./lib/reportStore";
 import AuditoriaPage from "./modules/auditoria/AuditoriaPage";
 import GananciasModule from "./modules/ganancias/GananciasModule";
 
+// ─── ICONS (outline, estilo Lucide) ────────────────────────────────────────────
+const ICON_PATHS = {
+  dashboard:   "M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z",
+  campaigns:   "M3 11l18-5v12L3 14v-3zM11.6 16.8a3 3 0 1 1-5.8-1.6",
+  creatives:   "M12 2a10 10 0 1 0 0 20 2.5 2.5 0 0 0 0-5h-1.5a2.5 2.5 0 0 1 0-5H12a5 5 0 0 0 0-10zM7.5 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 7.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM16.5 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
+  tasks:       "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
+  audit:       "M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2M9 12h6M9 16h6",
+  ganancias:   "M3 17l6-6 4 4 8-8M21 7h-5M21 7v5",
+  report:      "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  profit:      "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+  settings:    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
+  calendar:    "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
+  target:      "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+  refresh:     "M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5",
+  menu:        "M3 6h18M3 12h18M3 18h18",
+  sun:         "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
+  moon:        "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
+  users:       "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+  edit:        "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z",
+  trash:       "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6",
+  download:    "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+  close:       "M18 6L6 18M6 6l12 12",
+  alert:       "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01",
+  bulb:        "M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z",
+  video:       "M23 7l-7 5 7 5V7zM14 5H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z",
+  image:       "M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21",
+  cart:        "M9 22a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM20 22a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6",
+  star:        "M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z",
+  building:    "M3 21h18M5 21V7l8-4v18M19 21V11l-6-4M9 9v.01M9 12v.01M9 15v.01M9 18v.01",
+  card:        "M2 5h20a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM1 10h22",
+  plug:        "M12 22v-5M9 8V2M15 8V2M18 8H6v4a6 6 0 0 0 12 0V8z",
+  receipt:     "M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1zM8 7h8M8 11h8M8 15h5",
+  trendUp:     "M22 7l-9 9-4-4-6 6M16 7h6v6",
+  trendDown:   "M22 17l-9-9-4 4-6-6M16 17h6v-6",
+  wrench:      "M14.7 6.3a4 4 0 0 1-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 1 5.4-5.4l-2.6 2.6-2-2 2.6-2.6z",
+  zap:         "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+  key:         "M21 2l-2 2m-7.6 7.6a5 5 0 1 0-7 7 5 5 0 0 0 7-7zm0 0L15 8m0 0l3 3 3-3-3-3M15 8l-3-3",
+  hash:        "M4 9h16M4 15h16M10 3L8 21M16 3l-2 18",
+  search:      "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3",
+  pointer:     "M9 11.2V4a2 2 0 1 1 4 0v6m0 0V3a2 2 0 1 1 4 0v8m0-5a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2a8 8 0 0 1-6-3l-3.5-4a2 2 0 0 1 3-2.6L9 14",
+  clock:       "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2",
+  paperclip:   "M21.4 11.05 12.2 20.3a5 5 0 0 1-7.1-7.1l9.2-9.2a3.3 3.3 0 0 1 4.7 4.7l-9.2 9.2a1.7 1.7 0 0 1-2.4-2.4l8.5-8.5",
+  check:       "M20 6L9 17l-5-5",
+  logout:      "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
+};
+function Icon({ name, size=16, color="currentColor", strokeWidth=2, style }) {
+  const d = ICON_PATHS[name];
+  if (!d) return null;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+      strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"
+      style={{display:"inline-block",verticalAlign:"middle",flexShrink:0,...style}} aria-hidden="true">
+      <path d={d}/>
+    </svg>
+  );
+}
+
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const ThemeCtx = createContext(null);
 function useT() { return useContext(ThemeCtx); }
@@ -58,7 +115,7 @@ function ToastContainer() {
           fontSize:13,fontFamily:"'Inter',system-ui,sans-serif",
           animation:"slideIn 0.2s ease",boxShadow:"0 8px 24px rgba(0,0,0,0.4)",
         }}>
-          <span style={{fontSize:15}}>{t.type==="error"?"✗":t.type==="warn"?"⚠":"✓"}</span>
+          <Icon name={t.type==="error"?"close":t.type==="warn"?"alert":"check"} size={15}/>
           <span style={{flex:1}}>{t.msg}</span>
           <button onClick={()=>setToasts(p=>p.filter(x=>x.id!==t.id))} style={{background:"none",border:"none",color:"inherit",cursor:"pointer",opacity:0.6,fontSize:16,padding:0}}>×</button>
         </div>
@@ -92,7 +149,7 @@ function MobileHeader({ account, onMenu, onPDF }) {
   const T = useT();
   return (
     <div className="mobile-header" style={{display:"none",alignItems:"center",gap:10,padding:"12px 16px",background:T.bg1,borderBottom:`1px solid ${T.border}`,position:"sticky",top:0,zIndex:20}}>
-      <button onClick={onMenu} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:20,padding:0}}>☰</button>
+      <button onClick={onMenu} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",padding:0,display:"flex",alignItems:"center"}}><Icon name="menu" size={20}/></button>
       <div style={{width:28,height:28,borderRadius:7,background:account?.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff"}}>{account?.logo}</div>
       <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:T.text}}>{account?.name}</div></div>
       <button onClick={onPDF} style={{padding:"6px 12px",background:"#e8572a",border:"none",borderRadius:7,color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer"}}>PDF</button>
@@ -603,7 +660,7 @@ function CreativeCard({ cr, rank, goals, onClick, isWinner }) {
       <div style={{height:168, position:"relative", overflow:"hidden", borderBottom:`1px solid ${T.border}`}}>
         {/* Placeholder siempre visible como base */}
         <div style={{position:"absolute",inset:0,background:`linear-gradient(145deg,${cr.color||"#e8572a"}1a 0%,${T.bg2} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8}}>
-          <span style={{fontSize:44,lineHeight:1}}>{cr.thumb||(isVideo?"🎬":"📷")}</span>
+          <Icon name={isVideo?"video":"image"} size={40} strokeWidth={1.4} color={T.textDim}/>
           <span style={{fontSize:9,color:T.textFaint,textTransform:"uppercase",letterSpacing:"0.12em",fontWeight:600}}>{isVideo?"Video":"Imagen"}</span>
         </div>
         {/* Imagen encima del placeholder via CSS (sin restricciones CORS, fallback automático si falla) */}
@@ -612,10 +669,10 @@ function CreativeCard({ cr, rank, goals, onClick, isWinner }) {
         )}
         <div style={{position:"absolute",top:8,left:8,display:"flex",gap:4}}>
           <span style={{background:"rgba(0,0,0,0.72)",backdropFilter:"blur(6px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fff"}}>#{rank}</span>
-          {isWinner && <span style={{background:"#e8572a",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fff"}}>★ TOP</span>}
+          {isWinner && <span style={{background:"#e8572a",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fff",display:"inline-flex",alignItems:"center",gap:3}}><Icon name="star" size={10}/> TOP</span>}
         </div>
         <div style={{position:"absolute",top:8,right:8}}>
-          <span style={{background:isVideo?"rgba(79,70,229,0.82)":"rgba(22,101,52,0.82)",backdropFilter:"blur(6px)",borderRadius:5,padding:"2px 8px",fontSize:9,fontWeight:700,color:"#fff"}}>{isVideo?"🎬 VIDEO":"📷 IMG"}</span>
+          <span style={{background:isVideo?"rgba(79,70,229,0.82)":"rgba(22,101,52,0.82)",backdropFilter:"blur(6px)",borderRadius:5,padding:"2px 8px",fontSize:9,fontWeight:700,color:"#fff",display:"inline-flex",alignItems:"center",gap:4}}><Icon name={isVideo?"video":"image"} size={10}/> {isVideo?"VIDEO":"IMG"}</span>
         </div>
         {cr.status && cr.status !== "ACTIVE" && (
           <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.72)",backdropFilter:"blur(4px)",padding:"4px 8px",fontSize:9,color:"#fbbf24",textAlign:"center",fontWeight:700,letterSpacing:"0.06em"}}>⏸ PAUSADO</div>
@@ -703,7 +760,7 @@ function CreativeDetail({ cr, goals, onClose, daily }) {
             <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.82) 100%)"}}/>
             <div style={{position:"absolute",bottom:14,left:18,right:48}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                {cr.type==="VIDEO" && <span style={{background:"rgba(79,70,229,0.85)",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fff"}}>🎬 VIDEO</span>}
+                {cr.type==="VIDEO" && <span style={{background:"rgba(79,70,229,0.85)",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fff",display:"inline-flex",alignItems:"center",gap:4}}><Icon name="video" size={11}/> VIDEO</span>}
                 {cr.status==="ACTIVE"
                   ? <span style={{background:"rgba(22,101,52,0.85)",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#4ade80"}}>● ACTIVO</span>
                   : <span style={{background:"rgba(0,0,0,0.75)",backdropFilter:"blur(4px)",borderRadius:5,padding:"2px 8px",fontSize:10,fontWeight:700,color:"#fbbf24"}}>⏸ PAUSADO</span>
@@ -717,13 +774,13 @@ function CreativeDetail({ cr, goals, onClose, daily }) {
         )}
         {!cr.thumbnailUrl && (
           <div style={{display:"flex",alignItems:"flex-start",gap:14,padding:"18px 22px 14px",borderBottom:`1px solid ${T.border}`}}>
-            <div style={{width:56,height:56,borderRadius:10,overflow:"hidden",flexShrink:0,background:T.bg,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>
-              {cr.thumb}
+            <div style={{width:56,height:56,borderRadius:10,overflow:"hidden",flexShrink:0,background:T.bg,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textDim}}>
+              <Icon name={cr.type==="VIDEO"?"video":"image"} size={26} strokeWidth={1.5}/>
             </div>
             <div style={{flex:1}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
                 <span style={{fontSize:15,fontWeight:700,color:T.text}}>{cr.name}</span>
-                {cr.type==="VIDEO" && <span style={{background:"#4f46e522",border:"1px solid #4f46e544",borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:700,color:"#818cf8"}}>🎬 VIDEO</span>}
+                {cr.type==="VIDEO" && <span style={{background:"#4f46e522",border:"1px solid #4f46e544",borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:700,color:"#818cf8",display:"inline-flex",alignItems:"center",gap:4}}><Icon name="video" size={11}/> VIDEO</span>}
                 {cr.status==="ACTIVE" && <span style={{background:"#16a34a22",border:"1px solid #16a34a44",borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:700,color:"#4ade80"}}>ACTIVO</span>}
               </div>
               <div style={{fontSize:12,color:T.textDim}}>{cr.campaign||"—"}</div>
@@ -928,7 +985,7 @@ function CreativosModule({ account, goals }) {
 
   if (!creatives.length) return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,color:T.textFaint,gap:12,textAlign:"center"}}>
-      <div style={{fontSize:32}}>🎨</div>
+      <div style={{opacity:0.4}}><Icon name="creatives" size={32} strokeWidth={1.5}/></div>
       <div style={{fontSize:14,fontWeight:600,color:T.textSub}}>Sin datos de creativos</div>
       <div style={{fontSize:12,color:T.textDim,maxWidth:340}}>
         {account.meta_token ? "Actualizá los datos con el botón \"↻ Sincronización\" en la barra superior." : "Conectá la Meta API en Ajustes → editar cuenta para ver métricas reales de creativos."}
@@ -968,7 +1025,7 @@ function CreativosModule({ account, goals }) {
       {/* Empty state when no campaign selected */}
       {!hasSelection && (
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,color:T.textFaint,gap:10,textAlign:"center",background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10}}>
-          <div style={{fontSize:32}}>👆</div>
+          <div style={{opacity:0.4}}><Icon name="pointer" size={32} strokeWidth={1.5}/></div>
           <div style={{fontSize:14,fontWeight:600,color:T.textSub}}>Seleccioná al menos una campaña</div>
           <div style={{fontSize:12,color:T.textDim}}>Los creativos se mostrarán según las campañas que elijas arriba.</div>
         </div>
@@ -1000,8 +1057,8 @@ function CreativosModule({ account, goals }) {
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
             <div style={{display:"flex",gap:5}}>
               {["ALL","VIDEO","IMAGE"].map(t=>(
-                <button key={t} onClick={()=>setTf(t)} style={{padding:"5px 12px",borderRadius:6,border:"1px solid",cursor:"pointer",fontSize:11,background:tf===t?"#e8572a20":"none",borderColor:tf===t?"#e8572a":T.border2,color:tf===t?"#e8572a":T.textDim}}>
-                  {t==="ALL"?"Todos":t==="VIDEO"?"🎬 Video":"📷 Imagen"}
+                <button key={t} onClick={()=>setTf(t)} style={{padding:"5px 12px",borderRadius:6,border:"1px solid",cursor:"pointer",fontSize:11,background:tf===t?"#e8572a20":"none",borderColor:tf===t?"#e8572a":T.border2,color:tf===t?"#e8572a":T.textDim,display:"inline-flex",alignItems:"center",gap:4}}>
+                  {t==="ALL"?"Todos":t==="VIDEO"?<><Icon name="video" size={12}/> Video</>:<><Icon name="image" size={12}/> Imagen</>}
                 </button>
               ))}
             </div>
@@ -1521,7 +1578,7 @@ function InviteUserModal({user, allAccounts, currentAccounts=[], onSave, onClose
   if (done) return (
     <div style={overlay}>
       <div style={{...box,textAlign:"center"}}>
-        <div style={{fontSize:32,marginBottom:12}}>✅</div>
+        <div style={{marginBottom:12,display:"flex",justifyContent:"center",color:T.ok.text}}><Icon name="check" size={32} strokeWidth={2.2}/></div>
         <div style={{fontWeight:700,color:T.text,fontSize:16,marginBottom:8}}>Usuario creado</div>
         <div style={{fontSize:13,color:T.textMuted,marginBottom:16}}>Compartí estos datos con <b>{email}</b>:</div>
         <div style={{background:T.bg2,border:`1px solid ${T.border}`,borderRadius:10,padding:16,marginBottom:20,textAlign:"left"}}>
@@ -1698,7 +1755,7 @@ function MetaGuide() {
 
   const tip = (icon, text, sub) => (
     <div style={{display:"flex",gap:10,padding:"10px 14px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,marginBottom:6}}>
-      <span style={{fontSize:16,flexShrink:0}}>{icon}</span>
+      <span style={{flexShrink:0,color:T.textMuted,display:"flex",alignItems:"center"}}><Icon name={icon} size={16}/></span>
       <div>
         <div style={{fontSize:12,fontWeight:600,color:T.textSub}}>{text}</div>
         {sub && <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{sub}</div>}
@@ -1709,7 +1766,7 @@ function MetaGuide() {
   return (
     <div style={{marginTop:22,border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}>
       <div onClick={()=>setOpen(p=>!p)} style={{display:"flex",alignItems:"center",gap:10,padding:"13px 18px",background:T.bg1,cursor:"pointer",userSelect:"none"}}>
-        <span style={{fontSize:16}}>📘</span>
+        <span style={{color:T.textMuted,display:"flex",alignItems:"center"}}><Icon name="report" size={15}/></span>
         <span style={{fontSize:13,fontWeight:700,color:T.text,flex:1}}>Cómo conectar la API de Meta Ads</span>
         <span style={{fontSize:11,color:T.textMuted,marginRight:6}}>Token · ID · Permisos · Extensión</span>
         <span style={{color:T.textDim,fontSize:13}}>{open?"▲":"▼"}</span>
@@ -1734,7 +1791,7 @@ function MetaGuide() {
                 ))}
                 {s.note && (
                   <div style={{display:"flex",gap:8,marginTop:8,padding:"8px 12px",background:s.color+"11",border:`1px solid ${s.color}33`,borderRadius:7}}>
-                    <span style={{fontSize:13,flexShrink:0}}>⚠</span>
+                    <span style={{flexShrink:0,color:s.color,display:"flex",alignItems:"center"}}><Icon name="alert" size={13}/></span>
                     <span style={{fontSize:11,color:T.textSub,lineHeight:1.5}}>{s.note}</span>
                   </div>
                 )}
@@ -1762,11 +1819,11 @@ function MetaGuide() {
 
           {/* Quick tips */}
           <div>
-            <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>💡 Errores frecuentes</div>
-            {tip("🔑", "Token inválido o expirado", "Generá uno nuevo desde el Usuario del Sistema en business.facebook.com")}
-            {tip("🚫", "Permission error (#200)", "El Usuario del Sistema no tiene acceso a esa cuenta publicitaria. Agregarlo en Configuración del negocio → Cuentas publicitarias")}
-            {tip("📋", "Unsupported get request (#100)", "Verificá que los permisos ads_read y read_insights estén activados en el token")}
-            {tip("🔢", "ID de cuenta incorrecto", "Debe ser solo el número (ej: 123456789). La app agrega act_ automáticamente. No uses el ID del BM ni de la página")}
+            <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:6}}><Icon name="bulb" size={14}/> Errores frecuentes</div>
+            {tip("key", "Token inválido o expirado", "Generá uno nuevo desde el Usuario del Sistema en business.facebook.com")}
+            {tip("alert", "Permission error (#200)", "El Usuario del Sistema no tiene acceso a esa cuenta publicitaria. Agregarlo en Configuración del negocio → Cuentas publicitarias")}
+            {tip("audit", "Unsupported get request (#100)", "Verificá que los permisos ads_read y read_insights estén activados en el token")}
+            {tip("hash", "ID de cuenta incorrecto", "Debe ser solo el número (ej: 123456789). La app agrega act_ automáticamente. No uses el ID del BM ni de la página")}
           </div>
         </div>
       )}
@@ -2019,8 +2076,8 @@ function SettingsModule({currentUser, allAccounts, allUsers, setAllAccounts, set
                 {/* Acciones */}
                 {!isMe && (
                   <div style={{display:"flex",gap:6,flexShrink:0,alignSelf:"center"}}>
-                    <button onClick={()=>openEditUser(u)} style={{padding:"6px 14px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:12,fontWeight:600}}>✏ Editar</button>
-                    <button onClick={()=>handleDeleteUser(u.id)} style={{padding:"6px 12px",background:T.bad.bg,border:`1px solid ${T.bad.border}`,borderRadius:7,color:T.bad.text,cursor:"pointer",fontSize:12,fontWeight:600}}>🗑</button>
+                    <button onClick={()=>openEditUser(u)} style={{padding:"6px 14px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:12,fontWeight:600,display:"inline-flex",alignItems:"center",gap:5}}><Icon name="edit" size={13}/> Editar</button>
+                    <button onClick={()=>handleDeleteUser(u.id)} style={{padding:"6px 12px",background:T.bad.bg,border:`1px solid ${T.bad.border}`,borderRadius:7,color:T.bad.text,cursor:"pointer",fontSize:12,fontWeight:600,display:"inline-flex",alignItems:"center"}}><Icon name="trash" size={14}/></button>
                   </div>
                 )}
               </div>
@@ -2028,7 +2085,7 @@ function SettingsModule({currentUser, allAccounts, allUsers, setAllAccounts, set
           })}
           {allUsers.length===0 && (
             <div style={{textAlign:"center",padding:"40px 20px",color:T.textFaint,fontSize:13}}>
-              <div style={{fontSize:32,marginBottom:10,opacity:0.3}}>👥</div>
+              <div style={{marginBottom:10,opacity:0.3,display:"flex",justifyContent:"center"}}><Icon name="users" size={32} strokeWidth={1.5}/></div>
               <div style={{fontWeight:600,color:T.textSub,marginBottom:4}}>Sin usuarios todavía</div>
               <div>Invitá el primero con el botón de arriba</div>
             </div>
@@ -2153,7 +2210,7 @@ function DateRangePicker({ dateRange, onChange, compareRange, onCompareChange })
   return (
     <div style={{position:"relative"}}>
       <button onClick={()=>setOpen(!open)} style={{padding:"6px 12px",background:T.bg2,border:`1px solid ${comparing?"#60a5fa55":T.border2}`,borderRadius:8,color:T.text,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-        📅 {label}
+        <Icon name="calendar" size={14}/> {label}
         {comparing && <span style={{color:"#60a5fa",fontSize:10}}>vs {COMPARE_PRESETS.find(p=>p.id===compareRange?.preset)?.label || `${compareRange.from} → ${compareRange.to}`}</span>}
         <span style={{color:T.textMuted,fontSize:10}}>▼</span>
       </button>
@@ -2249,13 +2306,13 @@ function ProjectPicker({accounts, activeId, onSelect, onClose}) {
 
 // ─── MONTHLY REPORT HELPERS ──────────────────────────────────────────────────
 const MONTHLY_BLOCKS = [
-  { id:"m_kpis",        label:"📊 Métricas Importantes",    desc:"KPI cards con % variación vs período anterior" },
-  { id:"m_charts",      label:"📈 Gráficos de Evolución",   desc:"Inversión/Compras + ROAS en el tiempo" },
-  { id:"m_platform",    label:"🍩 Ventas por Plataforma",   desc:"Donas por placement y plataforma" },
-  { id:"m_campaigns",   label:"🎯 Resultados por Campaña",  desc:"Tabla con % variación vs anterior" },
-  { id:"m_creatives",   label:"🎨 Resultados por Creativos", desc:"Thumbnails con variación %" },
-  { id:"m_demo",        label:"👥 Demografía",              desc:"Edades top y ubicaciones top" },
-  { id:"m_conclusions", label:"📝 Conclusiones",            desc:"Análisis, trabajo y objetivos del mes" },
+  { id:"m_kpis",        label:"Métricas Importantes",    desc:"KPI cards con % variación vs período anterior" },
+  { id:"m_charts",      label:"Gráficos de Evolución",   desc:"Inversión/Compras + ROAS en el tiempo" },
+  { id:"m_platform",    label:"Ventas por Plataforma",   desc:"Donas por placement y plataforma" },
+  { id:"m_campaigns",   label:"Resultados por Campaña",  desc:"Tabla con % variación vs anterior" },
+  { id:"m_creatives",   label:"Resultados por Creativos", desc:"Thumbnails con variación %" },
+  { id:"m_demo",        label:"Demografía",              desc:"Edades top y ubicaciones top" },
+  { id:"m_conclusions", label:"Conclusiones",            desc:"Análisis, trabajo y objetivos del mes" },
 ];
 
 function DonutChart({ data, title, size=120 }) {
@@ -2314,6 +2371,120 @@ const PDF_BLOCKS = [
   { id:"reach",      label:"Alcance y frecuencia",     desc:"Impresiones, CPM, clics enlace" },
   { id:"custom_summary", label:"Resumen personalizado", desc:"Texto libre editable para el reporte" },
 ];
+
+// ─── PAGINADOR DE PDF (hojas A4 reales, WYSIWYG) ───────────────────────────────
+// Reparte los bloques (hijos directos de `contentEl`) en hojas tamaño A4. Si una
+// tabla no entra, la parte por filas y repite el encabezado en la hoja siguiente.
+// Así nada queda cortado al medio y el preview muestra exactamente lo que se baja.
+function buildPdfSheets(contentEl, pagesEl) {
+  pagesEl.innerHTML = "";
+  const blocks = Array.from(contentEl.children);
+  if (!blocks.length) return;
+
+  const contentW = Math.round(blocks[0].getBoundingClientRect().width) || 576;
+  const PAD = 40;
+  const sheetW = contentW + PAD * 2;
+  const sheetH = Math.round(sheetW * 297 / 210); // proporción A4
+  const sheetCss = `width:${sheetW}px;min-height:${sheetH}px;box-sizing:border-box;padding:${PAD}px;background:#fff;color:#111;font-family:Arial,sans-serif;overflow:hidden;box-shadow:0 0 30px rgba(0,0,0,0.28);border-radius:3px;`;
+
+  let sheet;
+  const addSheet = () => { sheet = document.createElement("div"); sheet.className = "pdf-sheet"; sheet.style.cssText = sheetCss; pagesEl.appendChild(sheet); return sheet; };
+  const fits = () => sheet.scrollHeight <= sheetH + 1;
+  addSheet();
+
+  // Coloca un bloque que contiene una tabla, partiéndola por filas si hace falta.
+  const placeTableBlock = (blockClone, table) => {
+    const tbody = table.querySelector("tbody");
+    const rows = tbody ? Array.from(tbody.children) : [];
+    rows.forEach(r => r.remove()); // dejar título + thead, sin filas de cuerpo
+    if (sheet.childElementCount > 0) {
+      sheet.appendChild(blockClone);
+      if (!fits()) { sheet.removeChild(blockClone); addSheet(); sheet.appendChild(blockClone); }
+    } else {
+      sheet.appendChild(blockClone);
+    }
+    let tb = tbody;
+    for (const row of rows) {
+      tb.appendChild(row);
+      if (!fits()) {
+        if (tb.childElementCount === 1) continue; // fila más alta que una página: aceptar
+        tb.removeChild(row);
+        addSheet();
+        const cont = blockClone.cloneNode(true); // título + thead, cuerpo vacío
+        const contTable = cont.tagName === "TABLE" ? cont : cont.querySelector("table");
+        tb = contTable.querySelector("tbody");
+        Array.from(tb.children).forEach(r => r.remove());
+        sheet.appendChild(cont);
+        tb.appendChild(row);
+      }
+    }
+  };
+
+  for (const block of blocks) {
+    const clone = block.cloneNode(true);
+    sheet.appendChild(clone);
+    if (fits()) continue;
+    sheet.removeChild(clone);
+    const table = clone.tagName === "TABLE" ? clone : clone.querySelector("table");
+    if (table) placeTableBlock(clone, table);
+    else { if (sheet.childElementCount > 0) addSheet(); sheet.appendChild(clone); }
+  }
+  if (sheet.childElementCount === 0 && pagesEl.childElementCount > 1) pagesEl.removeChild(sheet);
+}
+
+function loadPdfLibs() {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!window.html2canvas) await new Promise((r, j) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"; s.onload = r; s.onerror = j; document.head.appendChild(s); });
+      if (!window.jspdf) await new Promise((r, j) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"; s.onload = r; s.onerror = j; document.head.appendChild(s); });
+      resolve();
+    } catch (e) { reject(e); }
+  });
+}
+
+// Convierte cada hoja (.pdf-sheet) en una página del PDF — una hoja = una página.
+async function sheetsToPdf(pagesEl, filename) {
+  await loadPdfLibs();
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const sheets = Array.from(pagesEl.querySelectorAll(".pdf-sheet"));
+  for (let i = 0; i < sheets.length; i++) {
+    const canvas = await window.html2canvas(sheets[i], { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+    let w = 210, h = canvas.height * 210 / canvas.width;
+    if (h > 297) { h = 297; w = canvas.width * 297 / canvas.height; }
+    if (i > 0) pdf.addPage();
+    pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", (210 - w) / 2, 0, w, h);
+  }
+  pdf.save(filename);
+}
+
+// Renderiza `children` en una fuente oculta y muestra el resultado paginado en hojas A4.
+// Se reconstruye solo cuando cambia el contenido (MutationObserver).
+function PagedReport({ pagesId, inflow, children }) {
+  const sourceRef = useRef(null), pagesRef = useRef(null);
+  useEffect(() => {
+    const src = sourceRef.current, pg = pagesRef.current;
+    if (!src || !pg) return;
+    let raf = 0;
+    const rebuild = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { try { const content = src.firstElementChild; if (content) buildPdfSheets(content, pg); } catch (e) { console.error(e); } }); };
+    rebuild();
+    const obs = new MutationObserver(rebuild);
+    obs.observe(src, { subtree: true, childList: true, characterData: true, attributes: true });
+    window.addEventListener("resize", rebuild);
+    return () => { obs.disconnect(); cancelAnimationFrame(raf); window.removeEventListener("resize", rebuild); };
+  }, []);
+  // La fuente y las hojas SIEMPRE tienen layout (no display:none) para poder medir
+  // y renderizar el canvas incluso con el preview oculto (se van fuera de pantalla).
+  const pagesStyle = inflow
+    ? { display: "flex", flexDirection: "column", alignItems: "center", gap: 18, width: "100%" }
+    : { position: "absolute", left: -99999, top: 0, display: "flex", flexDirection: "column", gap: 18 };
+  return (
+    <>
+      <div ref={sourceRef} aria-hidden="true" style={{ position: "absolute", left: -99999, top: 0, opacity: 0, pointerEvents: "none" }}>{children}</div>
+      <div ref={pagesRef} id={pagesId} className="pdf-pages" style={pagesStyle} />
+    </>
+  );
+}
 
 function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   const T = useT();
@@ -2379,27 +2550,11 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   async function generatePDF() {
     setGenerating(true);
     if (!preview) setPreview(true);
-    await new Promise(r=>setTimeout(r,600));
+    await new Promise(r=>setTimeout(r,700));
     try {
-      await new Promise((res,rej)=>{ if(window.html2canvas)return res(); const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
-      await new Promise((res,rej)=>{ if(window.jspdf)return res(); const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
-      const el = document.getElementById("pdf-target");
-      if (!el) { setGenerating(false); return; }
-      const canvas = await window.html2canvas(el, { scale:2, useCORS:true, backgroundColor:"#ffffff", width:el.scrollWidth, height:el.scrollHeight });
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
-      const cW=186, imgH=(canvas.height*cW)/canvas.width;
-      let y=0;
-      while(y<imgH) {
-        if(y>0) pdf.addPage();
-        const sl=Math.min(273,imgH-y);
-        const srcY=(y/imgH)*canvas.height, srcH=(sl/imgH)*canvas.height;
-        const c2=document.createElement("canvas"); c2.width=canvas.width; c2.height=srcH;
-        c2.getContext("2d").drawImage(canvas,0,srcY,canvas.width,srcH,0,0,canvas.width,srcH);
-        pdf.addImage(c2.toDataURL("image/jpeg",0.92),"JPEG",12,12,cW,sl);
-        y+=sl;
-      }
-      pdf.save(`EcomBoost_${account.name}_${dateFrom}_${dateTo}.pdf`);
+      let pg = document.getElementById("pdf-pages");
+      if (!pg || !pg.querySelector(".pdf-sheet")) { await new Promise(r=>setTimeout(r,500)); pg = document.getElementById("pdf-pages"); }
+      if (pg && pg.querySelector(".pdf-sheet")) await sheetsToPdf(pg, `EcomBoost_${account.name}_${dateFrom}_${dateTo}.pdf`);
     } catch(e) { console.error(e); }
     setGenerating(false);
   }
@@ -2434,27 +2589,11 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   async function generateMonthlyPDF() {
     setMGenerating(true);
     if (!mPreview) setMPreview(true);
-    await new Promise(r=>setTimeout(r,600));
+    await new Promise(r=>setTimeout(r,700));
     try {
-      await new Promise((res,rej)=>{ if(window.html2canvas)return res(); const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
-      await new Promise((res,rej)=>{ if(window.jspdf)return res(); const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
-      const el = document.getElementById("monthly-pdf-target");
-      if (!el) { setMGenerating(false); return; }
-      const canvas = await window.html2canvas(el, { scale:2, useCORS:true, backgroundColor:"#ffffff", width:el.scrollWidth, height:el.scrollHeight });
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
-      const cW=186, imgH=(canvas.height*cW)/canvas.width;
-      let y=0;
-      while(y<imgH) {
-        if(y>0) pdf.addPage();
-        const sl=Math.min(273,imgH-y);
-        const srcY=(y/imgH)*canvas.height, srcH=(sl/imgH)*canvas.height;
-        const c2=document.createElement("canvas"); c2.width=canvas.width; c2.height=srcH;
-        c2.getContext("2d").drawImage(canvas,0,srcY,canvas.width,srcH,0,0,canvas.width,srcH);
-        pdf.addImage(c2.toDataURL("image/jpeg",0.92),"JPEG",12,12,cW,sl);
-        y+=sl;
-      }
-      pdf.save(`EcomBoost_Mensual_${account.name}_${dateFrom}_${dateTo}.pdf`);
+      let pg = document.getElementById("monthly-pdf-pages");
+      if (!pg || !pg.querySelector(".pdf-sheet")) { await new Promise(r=>setTimeout(r,500)); pg = document.getElementById("monthly-pdf-pages"); }
+      if (pg && pg.querySelector(".pdf-sheet")) await sheetsToPdf(pg, `EcomBoost_Mensual_${account.name}_${dateFrom}_${dateTo}.pdf`);
     } catch(e) { console.error(e); }
     setMGenerating(false);
   }
@@ -2657,7 +2796,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
                 {[...account.creatives].sort((a,b)=>b.roas-a.roas).slice(0,10).map((c,i)=>(
                   <tr key={c.id} style={{background:i%2===0?"#fff":"#fafafa"}}>
                     <td style={{...cs2,width:36,padding:4}}>
-                      {c.thumbnailUrl?<img src={c.thumbnailUrl} alt="" style={{width:32,height:32,objectFit:"cover",borderRadius:4,display:"block"}}/>:<div style={{width:32,height:32,background:"#f3f4f6",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>{c.type==="VIDEO"?"🎬":"📷"}</div>}
+                      {c.thumbnailUrl?<img src={c.thumbnailUrl} alt="" style={{width:32,height:32,objectFit:"cover",borderRadius:4,display:"block"}}/>:<div style={{width:32,height:32,background:"#f3f4f6",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name={c.type==="VIDEO"?"video":"image"} size={15} color="#9ca3af"/></div>}
                     </td>
                     <td style={{...cs2,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{c.name}</td>
                     <td style={cs2}>{c.ctr.toFixed(2)}%</td>
@@ -3143,9 +3282,9 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
                 )}
                 <div style={{display:"flex",borderTop:`1px solid ${T.border}`,padding:"2px 4px",gap:0}}>
                   <button title="Abrir" onClick={()=>handleOpenReport(r)} style={{flex:1,background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:10,padding:"4px 0",fontFamily:"inherit"}}>Abrir</button>
-                  <button title="Renombrar" onClick={e=>{e.stopPropagation();setRenameId(r.id);setRenameInput(r.name);}} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:12,padding:"4px 6px",lineHeight:1}}>✏</button>
+                  <button title="Renombrar" onClick={e=>{e.stopPropagation();setRenameId(r.id);setRenameInput(r.name);}} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",padding:"4px 6px",lineHeight:1,display:"inline-flex",alignItems:"center"}}><Icon name="edit" size={13}/></button>
                   <button title="Duplicar" onClick={e=>{e.stopPropagation();handleDuplicate(r.id);}} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:12,padding:"4px 6px",lineHeight:1}}>⧉</button>
-                  <button title="Eliminar" onClick={e=>{e.stopPropagation();setDeleteConfirmId(r.id);}} style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:12,padding:"4px 6px",lineHeight:1}}>✕</button>
+                  <button title="Eliminar" onClick={e=>{e.stopPropagation();setDeleteConfirmId(r.id);}} style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",padding:"4px 6px",lineHeight:1,display:"inline-flex",alignItems:"center"}}><Icon name="close" size={13}/></button>
                 </div>
               </div>
             );
@@ -3179,8 +3318,8 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
           </div>
           {/* Load comparison data */}
           <div style={{marginBottom:14}}>
-            <button onClick={fetchMonthlyData} disabled={monthlyLoading||!account.meta_token} style={{width:"100%",padding:"9px 0",background:account.meta_token?"#3b82f622":"#1a1a2200",border:`1px solid ${account.meta_token?"#3b82f644":T.border2}`,borderRadius:7,color:account.meta_token?"#60a5fa":T.textFaint,cursor:account.meta_token?"pointer":"not-allowed",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
-              {monthlyLoading?"⏳ Cargando...":monthlyData?"↻ Actualizar datos comparativos":"⬇ Cargar datos comparativos"}
+            <button onClick={fetchMonthlyData} disabled={monthlyLoading||!account.meta_token} style={{width:"100%",padding:"9px 0",background:account.meta_token?"#3b82f622":"#1a1a2200",border:`1px solid ${account.meta_token?"#3b82f644":T.border2}`,borderRadius:7,color:account.meta_token?"#60a5fa":T.textFaint,cursor:account.meta_token?"pointer":"not-allowed",fontSize:12,fontWeight:700,fontFamily:"inherit",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              {monthlyLoading?<><Icon name="clock" size={13}/> Cargando...</>:monthlyData?<><Icon name="refresh" size={13}/> Actualizar datos comparativos</>:<><Icon name="download" size={13}/> Cargar datos comparativos</>}
             </button>
             {monthlyData&&<div style={{fontSize:10,color:T.ok.text,marginTop:4,textAlign:"center"}}>✓ Datos cargados</div>}
             {!account.meta_token&&<div style={{fontSize:10,color:T.textFaint,marginTop:4,textAlign:"center"}}>Conectá Meta API en Ajustes</div>}
@@ -3254,17 +3393,17 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
             {mPreview?"◂ Ocultar preview":"▸ Ver preview"}
           </button>
           <button onClick={generateMonthlyPDF} disabled={mGenerating||monthlySel.length===0} style={{padding:"11px 0",background:monthlySel.length===0?T.bg2:"#a78bfa",border:"none",borderRadius:7,color:monthlySel.length===0?T.textFaint:"#fff",cursor:monthlySel.length===0?"not-allowed":"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:"inherit"}}>
-            {mGenerating?"⏳ Generando PDF...":"⬇ Descargar Reporte Mensual"}
+            {mGenerating?<><Icon name="clock" size={14}/> Generando PDF...</>:<><Icon name="download" size={14}/> Descargar Reporte Mensual</>}
           </button>
         </div>
       </div>
 
       {/* ── Right: preview ── */}
       <div style={{flex:1,overflowY:"auto",padding:24,background:T.bg,display:"flex",flexDirection:"column",alignItems:"center"}}>
-        {!mPreview
-          ? <div style={{color:T.textFaint,marginTop:80,textAlign:"center"}}><div style={{fontSize:32,marginBottom:12,opacity:0.2}}>⊟</div><div style={{fontSize:13}}>Hacé clic en "Ver preview" para previsualizar el reporte</div></div>
-          : <div style={{maxWidth:740,width:"100%",boxShadow:"0 0 50px rgba(0,0,0,0.3)",borderRadius:4}}><MonthlyPDFContent/></div>
-        }
+        {!mPreview && (
+          <div style={{color:T.textFaint,marginTop:80,textAlign:"center"}}><div style={{fontSize:32,marginBottom:12,opacity:0.2}}>⊟</div><div style={{fontSize:13}}>Hacé clic en "Ver preview" para previsualizar el reporte</div></div>
+        )}
+        <PagedReport pagesId="monthly-pdf-pages" inflow={mPreview}><MonthlyPDFContent/></PagedReport>
       </div>
     </div>
   );
@@ -3275,7 +3414,7 @@ function ClientPortal({account, tasks, currentUser, toast}) {
   const T = useT();
   if (!account) return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:16}}>
-      <div style={{fontSize:40}}>📊</div>
+      <div style={{opacity:0.4}}><Icon name="dashboard" size={40} strokeWidth={1.5}/></div>
       <div style={{fontSize:18,fontWeight:700,color:T.text}}>Bienvenido, {currentUser?.name||"cliente"}</div>
       <div style={{fontSize:13,color:T.textMuted}}>No tenés cuentas asignadas aún.</div>
     </div>
@@ -3654,7 +3793,7 @@ function RentabilidadModule({ account }) {
           </div>
         ) : (
           <div style={{textAlign:"center",padding:"36px 20px",color:T.textFaint,fontSize:12,background:T.bg,borderRadius:10,border:`1px dashed ${T.border2}`}}>
-            <div style={{fontSize:32,marginBottom:8}}>💡</div>
+            <div style={{marginBottom:8,display:"flex",justifyContent:"center",opacity:0.4}}><Icon name="bulb" size={32} strokeWidth={1.5}/></div>
             Ingresá la inversión en publicidad y el ROAS objetivo para ver el estado de resultados proyectado
           </div>
         )}
@@ -3665,15 +3804,15 @@ function RentabilidadModule({ account }) {
 
 // ─── NAVIGATION ──────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  {id:"dashboard", label:"Dashboard",    icon:"📊"},
-  {id:"campaigns", label:"Campañas",     icon:"📣"},
-  {id:"creatives", label:"Creativos",    icon:"🎨"},
-  {id:"tasks",     label:"Tareas",       icon:"✅"},
-  {id:"audit",      label:"Auditoría",    icon:"📋"},
-  {id:"ganancias",  label:"Ganancias",    icon:"💸"},
-  {id:"report",     label:"Reporte",      icon:"📄"},
-  {id:"profit",     label:"Rentabilidad", icon:"💰"},
-  {id:"settings",  label:"Ajustes",      icon:"⚙️"},
+  {id:"dashboard", label:"Dashboard",    icon:"dashboard"},
+  {id:"campaigns", label:"Campañas",     icon:"campaigns"},
+  {id:"creatives", label:"Creativos",    icon:"creatives"},
+  {id:"tasks",     label:"Tareas",       icon:"tasks"},
+  {id:"audit",      label:"Auditoría",    icon:"audit"},
+  {id:"ganancias",  label:"Ganancias",    icon:"ganancias"},
+  {id:"report",     label:"Reporte",      icon:"report"},
+  {id:"profit",     label:"Rentabilidad", icon:"profit"},
+  {id:"settings",  label:"Ajustes",      icon:"settings"},
 ];
 
 // ─── OVERVIEW MODULE ─────────────────────────────────────────────────────────
@@ -3804,70 +3943,70 @@ function formatCmVal(v, fmt) {
 
 const CUSTOM_METRICS_CATALOG = [
   // ── Performance ──
-  { id:"cm_impressions",       cat:"📊 Performance", label:"Impresiones",                fmt:"k", getValue: a => a.funnel?.creativos?.impresiones||0 },
-  { id:"cm_reach",             cat:"📊 Performance", label:"Alcance",                    fmt:"k", getValue: a => a.funnel?.creativos?.alcance||0 },
-  { id:"cm_frequency",         cat:"📊 Performance", label:"Frecuencia",                 fmt:"x", getValue: a => a.funnel?.creativos?.frecuencia||0 },
-  { id:"cm_clicks_all",        cat:"📊 Performance", label:"Clics (Todos)",              fmt:"k", getValue: a => a.funnel?.creativos?.clicsTodos||0 },
-  { id:"cm_link_clicks",       cat:"📊 Performance", label:"Clics en el Enlace",         fmt:"k", getValue: a => a.funnel?.creativos?.clicsEnlace||0 },
-  { id:"cm_unique_link_clicks",cat:"📊 Performance", label:"Clics Únicos en el Enlace",  fmt:"k", getValue: a => a.funnel?.creativos?.clicsUnicosEnlace||0 },
-  { id:"cm_ctr_all",           cat:"📊 Performance", label:"CTR (Todos)",                fmt:"%", getValue: a => a.funnel?.creativos?.ctrTodos||0 },
-  { id:"cm_ctr_link",          cat:"📊 Performance", label:"CTR (Enlace)",               fmt:"%", getValue: a => a.funnel?.creativos?.ctrUnico||0 },
-  { id:"cm_cpc_all",           cat:"📊 Performance", label:"CPC (Todos)",                fmt:"$", getValue: a => a.funnel?.creativos?.cpcTodos||0 },
-  { id:"cm_cpc_link",          cat:"📊 Performance", label:"CPC (Enlace)",               fmt:"$", getValue: a => a.funnel?.creativos?.cpcEnlace||0 },
-  { id:"cm_cpm",               cat:"📊 Performance", label:"CPM",                        fmt:"$", getValue: a => a.funnel?.creativos?.cpm||0 },
-  { id:"cm_spend",             cat:"📊 Performance", label:"Gasto",                      fmt:"$", getValue: a => a.funnel?.conversion?.inversion||0 },
-  { id:"cm_roas",              cat:"📊 Performance", label:"ROAS",                       fmt:"x", getValue: a => a.funnel?.conversion?.roas||0 },
-  { id:"cm_conversions",       cat:"📊 Performance", label:"Conversiones",               fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
-  { id:"cm_cpr",               cat:"📊 Performance", label:"Costo por Resultado",        fmt:"$", getValue: a => a.funnel?.conversion?.costoCompra||0 },
-  { id:"cm_results",           cat:"📊 Performance", label:"Resultados",                 fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
-  { id:"cm_result_rate",       cat:"📊 Performance", label:"Tasa de Resultados",         fmt:"%", getValue: a => {
+  { id:"cm_impressions",       cat:"Performance", label:"Impresiones",                fmt:"k", getValue: a => a.funnel?.creativos?.impresiones||0 },
+  { id:"cm_reach",             cat:"Performance", label:"Alcance",                    fmt:"k", getValue: a => a.funnel?.creativos?.alcance||0 },
+  { id:"cm_frequency",         cat:"Performance", label:"Frecuencia",                 fmt:"x", getValue: a => a.funnel?.creativos?.frecuencia||0 },
+  { id:"cm_clicks_all",        cat:"Performance", label:"Clics (Todos)",              fmt:"k", getValue: a => a.funnel?.creativos?.clicsTodos||0 },
+  { id:"cm_link_clicks",       cat:"Performance", label:"Clics en el Enlace",         fmt:"k", getValue: a => a.funnel?.creativos?.clicsEnlace||0 },
+  { id:"cm_unique_link_clicks",cat:"Performance", label:"Clics Únicos en el Enlace",  fmt:"k", getValue: a => a.funnel?.creativos?.clicsUnicosEnlace||0 },
+  { id:"cm_ctr_all",           cat:"Performance", label:"CTR (Todos)",                fmt:"%", getValue: a => a.funnel?.creativos?.ctrTodos||0 },
+  { id:"cm_ctr_link",          cat:"Performance", label:"CTR (Enlace)",               fmt:"%", getValue: a => a.funnel?.creativos?.ctrUnico||0 },
+  { id:"cm_cpc_all",           cat:"Performance", label:"CPC (Todos)",                fmt:"$", getValue: a => a.funnel?.creativos?.cpcTodos||0 },
+  { id:"cm_cpc_link",          cat:"Performance", label:"CPC (Enlace)",               fmt:"$", getValue: a => a.funnel?.creativos?.cpcEnlace||0 },
+  { id:"cm_cpm",               cat:"Performance", label:"CPM",                        fmt:"$", getValue: a => a.funnel?.creativos?.cpm||0 },
+  { id:"cm_spend",             cat:"Performance", label:"Gasto",                      fmt:"$", getValue: a => a.funnel?.conversion?.inversion||0 },
+  { id:"cm_roas",              cat:"Performance", label:"ROAS",                       fmt:"x", getValue: a => a.funnel?.conversion?.roas||0 },
+  { id:"cm_conversions",       cat:"Performance", label:"Conversiones",               fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
+  { id:"cm_cpr",               cat:"Performance", label:"Costo por Resultado",        fmt:"$", getValue: a => a.funnel?.conversion?.costoCompra||0 },
+  { id:"cm_results",           cat:"Performance", label:"Resultados",                 fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
+  { id:"cm_result_rate",       cat:"Performance", label:"Tasa de Resultados",         fmt:"%", getValue: a => {
     const imp = a.funnel?.creativos?.impresiones||0;
     const conv = a.funnel?.conversion?.conversiones||0;
     return imp > 0 ? (conv/imp)*100 : 0;
   }},
   // ── Creativo ──
-  { id:"cm_video_plays",       cat:"🎨 Creativo", label:"Reproducciones de Video",        fmt:"k", getValue: a => a.funnel?.creativos?.videoPlays||0 },
-  { id:"cm_video_2s",          cat:"🎨 Creativo", label:"Reproducciones de 2 Segundos",   fmt:"k", getValue: a => a.funnel?.creativos?.videoViews2s||0 },
-  { id:"cm_thruplay",          cat:"🎨 Creativo", label:"Reproducciones ThruPlay",         fmt:"k", getValue: a => a.funnel?.creativos?.videoThruplay||0 },
-  { id:"cm_avg_watch",         cat:"🎨 Creativo", label:"Tiempo Prom. de Reproducción",   fmt:"s", getValue: a => a.funnel?.creativos?.videoAvgTime||0 },
-  { id:"cm_hook_rate",         cat:"🎨 Creativo", label:"Hook Rate (3s / Impresiones)",    fmt:"%", getValue: a => {
+  { id:"cm_video_plays",       cat:"Creativo", label:"Reproducciones de Video",        fmt:"k", getValue: a => a.funnel?.creativos?.videoPlays||0 },
+  { id:"cm_video_2s",          cat:"Creativo", label:"Reproducciones de 2 Segundos",   fmt:"k", getValue: a => a.funnel?.creativos?.videoViews2s||0 },
+  { id:"cm_thruplay",          cat:"Creativo", label:"Reproducciones ThruPlay",         fmt:"k", getValue: a => a.funnel?.creativos?.videoThruplay||0 },
+  { id:"cm_avg_watch",         cat:"Creativo", label:"Tiempo Prom. de Reproducción",   fmt:"s", getValue: a => a.funnel?.creativos?.videoAvgTime||0 },
+  { id:"cm_hook_rate",         cat:"Creativo", label:"Hook Rate (3s / Impresiones)",    fmt:"%", getValue: a => {
     const cr = a.funnel?.creativos;
     return cr?.impresiones > 0 ? ((cr?.videoPlays||0)/cr.impresiones)*100 : 0;
   }},
-  { id:"cm_thumbstop",         cat:"🎨 Creativo", label:"Thumbstop Rate (2s / Impresiones)",fmt:"%", getValue: a => {
+  { id:"cm_thumbstop",         cat:"Creativo", label:"Thumbstop Rate (2s / Impresiones)",fmt:"%", getValue: a => {
     const cr = a.funnel?.creativos;
     return cr?.impresiones > 0 ? ((cr?.videoViews2s||0)/cr.impresiones)*100 : 0;
   }},
-  { id:"cm_cr_unique_link",    cat:"🎨 Creativo", label:"Clics Únicos en el Enlace",      fmt:"k", getValue: a => a.funnel?.creativos?.clicsUnicosEnlace||0 },
-  { id:"cm_cr_frequency",      cat:"🎨 Creativo", label:"Frecuencia",                     fmt:"x", getValue: a => a.funnel?.creativos?.frecuencia||0 },
+  { id:"cm_cr_unique_link",    cat:"Creativo", label:"Clics Únicos en el Enlace",      fmt:"k", getValue: a => a.funnel?.creativos?.clicsUnicosEnlace||0 },
+  { id:"cm_cr_frequency",      cat:"Creativo", label:"Frecuencia",                     fmt:"x", getValue: a => a.funnel?.creativos?.frecuencia||0 },
   // ── Conversión ──
-  { id:"cm_purchases",         cat:"💰 Conversión", label:"Compras",                      fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
-  { id:"cm_cost_purchase",     cat:"💰 Conversión", label:"Costo por Compra",             fmt:"$", getValue: a => a.funnel?.conversion?.costoCompra||0 },
-  { id:"cm_atc",               cat:"💰 Conversión", label:"Agregar al Carrito",           fmt:"k", getValue: a => a.funnel?.acciones?.addToCart||0 },
-  { id:"cm_cost_atc",          cat:"💰 Conversión", label:"Costo por ATC",               fmt:"$", getValue: a => a.funnel?.acciones?.costoCarrito||0 },
-  { id:"cm_initiate_checkout", cat:"💰 Conversión", label:"Inicio de Pago",              fmt:"k", getValue: a => a.funnel?.acciones?.pagosIniciados||0 },
-  { id:"cm_cost_checkout",     cat:"💰 Conversión", label:"Costo por Inicio de Pago",    fmt:"$", getValue: a => a.funnel?.acciones?.costoPagosIniciados||0 },
-  { id:"cm_leads",             cat:"💰 Conversión", label:"Leads",                       fmt:"k", getValue: a => a.funnel?.acciones?.leads||0 },
-  { id:"cm_cost_lead",         cat:"💰 Conversión", label:"Costo por Lead",              fmt:"$", getValue: a => a.funnel?.acciones?.costoLead||0 },
-  { id:"cm_ticket",            cat:"💰 Conversión", label:"Ticket Promedio",             fmt:"$", getValue: a => a.funnel?.conversion?.ticketPromedio||0 },
-  { id:"cm_conv_rate",         cat:"💰 Conversión", label:"Tasa de Conversión Web",      fmt:"%", getValue: a => a.funnel?.conversion?.tasaConversionWeb||0 },
+  { id:"cm_purchases",         cat:"Conversión", label:"Compras",                      fmt:"k", getValue: a => a.funnel?.conversion?.conversiones||0 },
+  { id:"cm_cost_purchase",     cat:"Conversión", label:"Costo por Compra",             fmt:"$", getValue: a => a.funnel?.conversion?.costoCompra||0 },
+  { id:"cm_atc",               cat:"Conversión", label:"Agregar al Carrito",           fmt:"k", getValue: a => a.funnel?.acciones?.addToCart||0 },
+  { id:"cm_cost_atc",          cat:"Conversión", label:"Costo por ATC",               fmt:"$", getValue: a => a.funnel?.acciones?.costoCarrito||0 },
+  { id:"cm_initiate_checkout", cat:"Conversión", label:"Inicio de Pago",              fmt:"k", getValue: a => a.funnel?.acciones?.pagosIniciados||0 },
+  { id:"cm_cost_checkout",     cat:"Conversión", label:"Costo por Inicio de Pago",    fmt:"$", getValue: a => a.funnel?.acciones?.costoPagosIniciados||0 },
+  { id:"cm_leads",             cat:"Conversión", label:"Leads",                       fmt:"k", getValue: a => a.funnel?.acciones?.leads||0 },
+  { id:"cm_cost_lead",         cat:"Conversión", label:"Costo por Lead",              fmt:"$", getValue: a => a.funnel?.acciones?.costoLead||0 },
+  { id:"cm_ticket",            cat:"Conversión", label:"Ticket Promedio",             fmt:"$", getValue: a => a.funnel?.conversion?.ticketPromedio||0 },
+  { id:"cm_conv_rate",         cat:"Conversión", label:"Tasa de Conversión Web",      fmt:"%", getValue: a => a.funnel?.conversion?.tasaConversionWeb||0 },
   // ── Audiencia ──
-  { id:"cm_new_convos",        cat:"👥 Audiencia", label:"Nuevas Conversaciones",         fmt:"k", getValue: a => a.funnel?.acciones?.nuevasConversaciones||0 },
-  { id:"cm_convos_started",    cat:"👥 Audiencia", label:"Conversaciones Iniciadas",     fmt:"k", getValue: a => a.funnel?.acciones?.conversacionesIniciadas||0 },
-  { id:"cm_page_likes",        cat:"👥 Audiencia", label:"Me Gusta en la Página",        fmt:"k", getValue: a => a.funnel?.acciones?.meLikesPagina||0 },
-  { id:"cm_interactions",      cat:"👥 Audiencia", label:"Interacciones",                fmt:"k", getValue: a => {
+  { id:"cm_new_convos",        cat:"Audiencia", label:"Nuevas Conversaciones",         fmt:"k", getValue: a => a.funnel?.acciones?.nuevasConversaciones||0 },
+  { id:"cm_convos_started",    cat:"Audiencia", label:"Conversaciones Iniciadas",     fmt:"k", getValue: a => a.funnel?.acciones?.conversacionesIniciadas||0 },
+  { id:"cm_page_likes",        cat:"Audiencia", label:"Me Gusta en la Página",        fmt:"k", getValue: a => a.funnel?.acciones?.meLikesPagina||0 },
+  { id:"cm_interactions",      cat:"Audiencia", label:"Interacciones",                fmt:"k", getValue: a => {
     const ac = a.funnel?.acciones||{};
     return (ac.reacciones||0)+(ac.comentarios||0)+(ac.compartidos||0);
   }},
-  { id:"cm_reactions",         cat:"👥 Audiencia", label:"Reacciones",                   fmt:"k", getValue: a => a.funnel?.acciones?.reacciones||0 },
-  { id:"cm_comments",          cat:"👥 Audiencia", label:"Comentarios",                  fmt:"k", getValue: a => a.funnel?.acciones?.comentarios||0 },
-  { id:"cm_shares",            cat:"👥 Audiencia", label:"Compartidos",                  fmt:"k", getValue: a => a.funnel?.acciones?.compartidos||0 },
-  { id:"cm_photo_views",       cat:"👥 Audiencia", label:"Visualizaciones de Fotos",    fmt:"k", getValue: a => a.funnel?.acciones?.fotosVistas||0 },
+  { id:"cm_reactions",         cat:"Audiencia", label:"Reacciones",                   fmt:"k", getValue: a => a.funnel?.acciones?.reacciones||0 },
+  { id:"cm_comments",          cat:"Audiencia", label:"Comentarios",                  fmt:"k", getValue: a => a.funnel?.acciones?.comentarios||0 },
+  { id:"cm_shares",            cat:"Audiencia", label:"Compartidos",                  fmt:"k", getValue: a => a.funnel?.acciones?.compartidos||0 },
+  { id:"cm_photo_views",       cat:"Audiencia", label:"Visualizaciones de Fotos",    fmt:"k", getValue: a => a.funnel?.acciones?.fotosVistas||0 },
   // ── Atribución ──
-  { id:"cm_attr_click_1d",     cat:"📎 Atribución", label:"Conv. clic 1 día",            fmt:"k", getValue: a => a.funnel?.atribucion?.click1d||0 },
-  { id:"cm_attr_click_7d",     cat:"📎 Atribución", label:"Conv. clic 7 días",           fmt:"k", getValue: a => a.funnel?.atribucion?.click7d||0 },
-  { id:"cm_attr_view_1d",      cat:"📎 Atribución", label:"Conv. vista 1 día",           fmt:"k", getValue: a => a.funnel?.atribucion?.view1d||0 },
-  { id:"cm_attr_7d_1d",        cat:"📎 Atribución", label:"Conv. clic 7d + vista 1d",    fmt:"k", getValue: a => a.funnel?.atribucion?.click7dView1d||0 },
+  { id:"cm_attr_click_1d",     cat:"Atribución", label:"Conv. clic 1 día",            fmt:"k", getValue: a => a.funnel?.atribucion?.click1d||0 },
+  { id:"cm_attr_click_7d",     cat:"Atribución", label:"Conv. clic 7 días",           fmt:"k", getValue: a => a.funnel?.atribucion?.click7d||0 },
+  { id:"cm_attr_view_1d",      cat:"Atribución", label:"Conv. vista 1 día",           fmt:"k", getValue: a => a.funnel?.atribucion?.view1d||0 },
+  { id:"cm_attr_7d_1d",        cat:"Atribución", label:"Conv. clic 7d + vista 1d",    fmt:"k", getValue: a => a.funnel?.atribucion?.click7dView1d||0 },
 ];
 
 // Evaluador aritmético seguro (sin eval / Function)
@@ -4166,7 +4305,7 @@ function CustomMetricsModal({ selected, customDefs, onSave, onClose }) {
                 style={{width:"100%",background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,color:T.text,padding:"9px 13px",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit",marginBottom:16}}/>
               {Object.entries(categories).map(([cat,metrics])=>(
                 <div key={cat} style={{marginBottom:20}}>
-                  <div style={{fontSize:11,fontWeight:700,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>{cat}</div>
+                  <div style={{fontSize:11,fontWeight:700,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,paddingBottom:6,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:6}}><Icon name={{Creativo:"creatives",Audiencia:"users","Conversión":"profit",Performance:"dashboard","Atribución":"paperclip"}[cat]||"dashboard"} size={12}/> {cat}</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
                     {metrics.map(m=>{
                       const chk = localSel.has(m.id);
@@ -4269,8 +4408,8 @@ function CustomMetricsSection({ account, selected, customDefs, onOpen }) {
         <div style={{width:10,height:10,borderRadius:2,background:"#a78bfa",flexShrink:0}}/>
         <span style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Métricas Personalizadas</span>
         <span style={{fontSize:10,color:T.textFaint,marginLeft:2}}>· {CUSTOM_METRICS_CATALOG.length} disponibles</span>
-        <button onClick={onOpen} style={{marginLeft:"auto",padding:"5px 13px",background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:6,color:"#a78bfa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-          {hasAny ? "✏ Editar" : "+ Agregar métricas"}
+        <button onClick={onOpen} style={{marginLeft:"auto",padding:"5px 13px",background:"#a78bfa22",border:"1px solid #a78bfa44",borderRadius:6,color:"#a78bfa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>
+          {hasAny ? <><Icon name="edit" size={12}/> Editar</> : "+ Agregar métricas"}
         </button>
       </div>
       {hasAny ? (
@@ -4286,7 +4425,7 @@ function CustomMetricsSection({ account, selected, customDefs, onOpen }) {
         <div onClick={onOpen} style={{background:T.bg1,border:`2px dashed ${T.border2}`,borderRadius:10,padding:"30px 20px",textAlign:"center",cursor:"pointer"}}
           onMouseEnter={e=>e.currentTarget.style.borderColor="#a78bfa66"}
           onMouseLeave={e=>e.currentTarget.style.borderColor=T.border2}>
-          <div style={{fontSize:24,marginBottom:8}}>📊</div>
+          <div style={{marginBottom:8,opacity:0.5,display:"flex",justifyContent:"center"}}><Icon name="dashboard" size={24} strokeWidth={1.6}/></div>
           <div style={{fontSize:13,fontWeight:600,color:T.textSub,marginBottom:4}}>Agregá métricas personalizadas</div>
           <div style={{fontSize:12,color:T.textDim}}>Elegí del catálogo o creá tus propias fórmulas</div>
         </div>
@@ -4325,7 +4464,7 @@ function DashboardPage({ account, compareData }) {
     <div className="page-pad" style={{padding:"20px 24px"}}>
       {compareData && (
         <div style={{background:"#60a5fa11",border:"1px solid #60a5fa33",borderRadius:8,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#60a5fa",display:"flex",alignItems:"center",gap:6}}>
-          📊 Comparando con el período {compareData.from} → {compareData.to}
+          <Icon name="dashboard" size={13}/> Comparando con el período {compareData.from} → {compareData.to}
         </div>
       )}
       <PhaseBlock color="#60a5fa" title="CREATIVOS"
@@ -5110,7 +5249,7 @@ export default function App() {
               const active = page===n.id;
               return (
                 <div key={n.id} onClick={()=>setPage(n.id)} title={!sidebarOpen?n.label:""} style={{display:"flex",alignItems:"center",gap:12,padding:sidebarOpen?"10px 16px":"10px",margin:"1px 8px",borderRadius:8,cursor:"pointer",background:active?"#e8572a":T.hover==="transparent"?"transparent":undefined,color:active?"#fff":T.textMuted,transition:"background .15s",whiteSpace:"nowrap"}}>
-                  <span style={{fontSize:16,flexShrink:0}}>{n.icon}</span>
+                  <Icon name={n.icon} size={18} strokeWidth={active?2.2:1.8}/>
                   {sidebarOpen&&<span style={{fontSize:13,fontWeight:active?600:400}}>{n.label}</span>}
                 </div>
               );
@@ -5120,7 +5259,7 @@ export default function App() {
           {/* Bottom: theme toggle + user */}
           <div style={{borderTop:`1px solid ${T.border}`,padding:"12px 10px",flexShrink:0}}>
             <div onClick={()=>setDarkMode(p=>!p)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px",borderRadius:8,cursor:"pointer",marginBottom:8}}>
-              <span style={{fontSize:16}}>{darkMode?"☀️":"🌙"}</span>
+              <Icon name={darkMode?"sun":"moon"} size={16} color={T.textMuted}/>
               {sidebarOpen&&<span style={{fontSize:12,color:T.textMuted}}>{darkMode?"Modo claro":"Modo oscuro"}</span>}
             </div>
             {sidebarOpen && (
@@ -5130,12 +5269,12 @@ export default function App() {
                   <div style={{fontSize:11,fontWeight:600,color:T.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user.name||user.email}</div>
                   <div style={{fontSize:10,color:T.textMuted,textTransform:"capitalize"}}>{user.role}</div>
                 </div>
-                <button onClick={handleLogout} title="Cerrar sesión" style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,padding:2}}>↩</button>
+                <button onClick={handleLogout} title="Cerrar sesión" style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",padding:2,display:"flex",alignItems:"center"}}><Icon name="logout" size={15}/></button>
               </div>
             )}
             {!sidebarOpen && (
               <div style={{display:"flex",justifyContent:"center"}}>
-                <button onClick={handleLogout} title="Cerrar sesión" style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,padding:4}}>↩</button>
+                <button onClick={handleLogout} title="Cerrar sesión" style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",padding:4,display:"flex",alignItems:"center"}}><Icon name="logout" size={16}/></button>
               </div>
             )}
           </div>
@@ -5146,7 +5285,7 @@ export default function App() {
           {/* Topbar */}
           <div style={{height:56,background:T.bg1,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",padding:"0 14px",gap:10,flexShrink:0,position:"sticky",top:0,zIndex:100}}>
             {/* Hamburguesa móvil — abre/cierra sidebar */}
-            <button className="mobile-hamburger" onClick={()=>setSidebarOpen(p=>!p)} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,padding:"4px 6px",lineHeight:1,flexShrink:0,WebkitTapHighlightColor:"transparent"}}>☰</button>
+            <button className="mobile-hamburger" onClick={()=>setSidebarOpen(p=>!p)} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",padding:"4px 6px",lineHeight:1,flexShrink:0,WebkitTapHighlightColor:"transparent",display:"flex",alignItems:"center"}}><Icon name="menu" size={20}/></button>
             <span style={{fontSize:15,fontWeight:700,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>{navItems.find(n=>n.id===page)?.label||"Dashboard"}</span>
             {/* Selector de cuenta en topbar — solo móvil */}
             {activeAccount && (
@@ -5164,8 +5303,8 @@ export default function App() {
             )}
             <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
               {page === "dashboard" && activeAccount && (
-                <button onClick={()=>setShowGoalsModal(true)} style={{padding:"5px 12px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
-                  🎯 Objetivos
+                <button onClick={()=>setShowGoalsModal(true)} style={{padding:"5px 12px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+                  <Icon name="target" size={14}/> Objetivos
                 </button>
               )}
               {["dashboard","campaigns","creatives"].includes(page) && (
@@ -5180,7 +5319,7 @@ export default function App() {
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
                   {metaError && (
                     <div style={{display:"flex",alignItems:"center",gap:6,background:"#2d0a0a",border:"1px solid #991b1b",borderRadius:7,padding:"5px 10px",maxWidth:340}}>
-                      <span style={{fontSize:13,flexShrink:0}}>⚠</span>
+                      <Icon name="alert" size={13} color="#f87171"/>
                       <span style={{fontSize:11,color:"#f87171",lineHeight:1.35,wordBreak:"break-word"}}>{metaError}</span>
                       <button onClick={()=>setMetaError(null)} style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:14,lineHeight:1,padding:0,flexShrink:0,opacity:0.7}}>×</button>
                     </div>
@@ -5191,8 +5330,8 @@ export default function App() {
                       fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to);
                     }}
                     title="Click: sync · Shift+Click: limpiar cache y forzar refetch"
-                    style={{fontSize:11,background:metaError?"#2d0a0a":"#16a34a22",border:`1px solid ${metaError?"#991b1b":"#16a34a44"}`,color:metaError?"#f87171":"#16a34a",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:600,WebkitTapHighlightColor:"transparent"}}>
-                    {metaError ? "⚠ Error — Reintentar" : "↻ Sincronización"}
+                    style={{fontSize:11,background:metaError?"#2d0a0a":"#16a34a22",border:`1px solid ${metaError?"#991b1b":"#16a34a44"}`,color:metaError?"#f87171":"#16a34a",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:600,WebkitTapHighlightColor:"transparent",display:"inline-flex",alignItems:"center",gap:5}}>
+                    <Icon name={metaError?"alert":"refresh"} size={13}/> {metaError ? "Error — Reintentar" : "Sincronización"}
                   </button>
                 </div>
               )}
@@ -5207,8 +5346,8 @@ export default function App() {
               <DateRangePicker dateRange={dateRange} onChange={rng=>{setDateRange(rng);const acc=allAccounts.find(a=>a.id===activeProjectId);if(acc?.meta_token)fetchMetaData(activeProjectId,acc.meta_token,acc.meta_ad_account_id,rng.from,rng.to);}} compareRange={compareRange} onCompareChange={setCompareRange}/>
               {activeAccount.meta_token && !metaLoading && (
                 <button onClick={()=>fetchMetaData(activeProjectId,activeAccount.meta_token,activeAccount.meta_ad_account_id,dateRange.from,dateRange.to)}
-                  style={{flexShrink:0,fontSize:12,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontWeight:700,WebkitTapHighlightColor:"transparent"}}>
-                  ↻
+                  style={{flexShrink:0,background:"#16a34a22",border:"1px solid #16a34a44",color:"#16a34a",borderRadius:6,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",WebkitTapHighlightColor:"transparent",display:"flex",alignItems:"center"}}>
+                  <Icon name="refresh" size={14}/>
                 </button>
               )}
             </div>
@@ -5234,13 +5373,13 @@ export default function App() {
           const active = page===id;
           return (
             <button key={id} onClick={()=>setPage(id)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",color:active?"#e8572a":T.textMuted}}>
-              <span style={{fontSize:20,lineHeight:1}}>{n.icon}</span>
+              <Icon name={n.icon} size={20} strokeWidth={active?2.2:1.8}/>
               <span style={{fontSize:9,fontWeight:active?700:400}}>{n.label}</span>
             </button>
           );
         })}
         <button onClick={()=>setSidebarOpen(p=>!p)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",color:T.textMuted}}>
-          <span style={{fontSize:20,lineHeight:1}}>☰</span>
+          <Icon name="menu" size={20}/>
           <span style={{fontSize:9}}>Más</span>
         </button>
       </div>

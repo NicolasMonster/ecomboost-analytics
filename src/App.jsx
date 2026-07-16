@@ -59,7 +59,7 @@ function Icon({ name, size=16, color="currentColor", strokeWidth=2, style }) {
   const d = ICON_PATHS[name];
   if (!d) return null;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
       strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"
       style={{display:"inline-block",verticalAlign:"middle",flexShrink:0,...style}} aria-hidden="true">
       <path d={d}/>
@@ -2341,7 +2341,7 @@ function DonutChart({ data, title, size=120 }) {
     <div style={{flex:1,minWidth:0}}>
       <div style={{fontSize:9,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:7}}>{title}</div>
       <div style={{display:"flex",gap:10,alignItems:"center"}}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{flexShrink:0}}>
+        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{flexShrink:0}}>
           {slices.map((s,i)=><path key={i} d={s.path} fill={s.color}/>)}
         </svg>
         <div style={{flex:1,minWidth:0}}>
@@ -2385,7 +2385,7 @@ function buildPdfSheets(contentEl, pagesEl) {
   const PAD = 40;
   const sheetW = contentW + PAD * 2;
   const sheetH = Math.round(sheetW * 297 / 210); // proporción A4
-  const sheetCss = `width:${sheetW}px;min-height:${sheetH}px;box-sizing:border-box;padding:${PAD}px;background:#fff;color:#111;font-family:Arial,sans-serif;overflow:hidden;box-shadow:0 0 30px rgba(0,0,0,0.28);border-radius:3px;`;
+  const sheetCss = `width:${sheetW}px;min-height:${sheetH}px;box-sizing:border-box;padding:${PAD}px;background:#fff;color:#111;font-family:Arial,sans-serif;box-shadow:0 0 30px rgba(0,0,0,0.28);border-radius:3px;`;
 
   let sheet;
   const addSheet = () => { sheet = document.createElement("div"); sheet.className = "pdf-sheet"; sheet.style.cssText = sheetCss; pagesEl.appendChild(sheet); return sheet; };

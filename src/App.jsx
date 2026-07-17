@@ -2442,9 +2442,37 @@ function loadPdfLibs() {
   });
 }
 
+// html2canvas rasteriza mal los SVG inline (donas, gráficos, íconos): a veces
+// salen en blanco. Los convertimos a <img> PNG antes de capturar, que html2canvas
+// sí renderiza perfecto.
+async function rasterizeSvgs(root) {
+  const svgs = Array.from(root.querySelectorAll("svg"));
+  for (const svg of svgs) {
+    try {
+      const rect = svg.getBoundingClientRect();
+      const w = Math.round(rect.width || parseFloat(svg.getAttribute("width")) || 100);
+      const h = Math.round(rect.height || parseFloat(svg.getAttribute("height")) || 100);
+      if (w <= 0 || h <= 0) continue;
+      if (!svg.getAttribute("xmlns")) svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      const xml = new XMLSerializer().serializeToString(svg);
+      const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+      const img = new Image(); img.width = w; img.height = h;
+      await new Promise(res => { img.onload = res; img.onerror = res; img.src = url; });
+      const c = document.createElement("canvas"); const s = 2;
+      c.width = w * s; c.height = h * s;
+      const ctx = c.getContext("2d"); ctx.scale(s, s); ctx.drawImage(img, 0, 0, w, h);
+      const png = document.createElement("img");
+      png.src = c.toDataURL("image/png");
+      png.style.cssText = `width:${w}px;height:${h}px;display:inline-block;vertical-align:middle;flex-shrink:0;`;
+      svg.parentNode && svg.parentNode.replaceChild(png, svg);
+    } catch (e) { /* si falla, se deja el SVG original */ }
+  }
+}
+
 // Convierte cada hoja (.pdf-sheet) en una página del PDF — una hoja = una página.
 async function sheetsToPdf(pagesEl, filename) {
   await loadPdfLibs();
+  await rasterizeSvgs(pagesEl);
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const sheets = Array.from(pagesEl.querySelectorAll(".pdf-sheet"));

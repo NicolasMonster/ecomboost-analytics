@@ -2531,6 +2531,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   const [monthlyData,   setMonthlyData]  = useState(null);
   const [monthlyPrevData,setMonthlyPrevData]= useState(null);
   const [monthlyPrevCamps,setMonthlyPrevCamps]= useState([]);
+  const [monthlyError,  setMonthlyError] = useState(null);
   const [mPreview,      setMPreview]     = useState(true);
   const [mGenerating,   setMGenerating]  = useState(false);
   const [conclAnalisis, setConclAnalisis]= useState("");
@@ -2607,12 +2608,25 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
         fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({access_token:token,fields:baseF,time_range:prevTr,level:"account"})}`).then(r=>r.json()),
         fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({access_token:token,fields:"campaign_name,campaign_id,spend,actions,action_values",time_range:prevTr,level:"campaign"})}`).then(r=>r.json()),
       ]);
+      const firstErr = platR.error || ageR.error || regionR.error || prevR.error || prevCampR.error;
+      if (firstErr) setMonthlyError(`[${firstErr.code||"?"}] ${firstErr.message||"Error de Meta API"}`);
+      else setMonthlyError(null);
       setMonthlyData({ plat:platR.data||[], age:ageR.data||[], region:regionR.data||[] });
       setMonthlyPrevData(prevR.data?.[0]||null);
       setMonthlyPrevCamps(prevCampR.data||[]);
-    } catch(e) { console.error("Monthly fetch:",e); }
+    } catch(e) { console.error("Monthly fetch:",e); setMonthlyError(e.message||"Error de red al cargar datos comparativos"); }
     setMonthlyLoading(false);
   }
+
+  // Auto-cargar los datos de breakdown (plataforma/placement/edad/región) al abrir
+  // el reporte o al cambiar de cuenta/período — así Plataforma y Demografía se
+  // llenan solas sin depender del botón manual.
+  useEffect(() => {
+    if (account?.meta_token && account?.meta_ad_account_id && dateFrom && dateTo) {
+      fetchMonthlyData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.id, dateFrom, dateTo]);
 
   async function generateMonthlyPDF() {
     setMGenerating(true);
@@ -2780,7 +2794,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
                 <DonutChart data={platData} title="Por Plataforma" size={110}/>
               </div>
             ):(
-              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:16,textAlign:"center",color:"#bbb",fontSize:11}}>Cargá datos comparativos para ver este gráfico</div>
+              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:16,textAlign:"center",color:monthlyError?"#dc2626":"#bbb",fontSize:11}}>{monthlyLoading?"Cargando datos...":monthlyError?`Sin datos — ${monthlyError}`:"Sin datos de plataforma en este período"}</div>
             )}
           </div>
         )}
@@ -2848,7 +2862,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
                 <DonutChart data={regionData} title="Ubicaciones por clics" size={110}/>
               </div>
             ):(
-              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:16,textAlign:"center",color:"#bbb",fontSize:11}}>Cargá datos comparativos para ver demografía</div>
+              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:16,textAlign:"center",color:monthlyError?"#dc2626":"#bbb",fontSize:11}}>{monthlyLoading?"Cargando datos...":monthlyError?`Sin datos — ${monthlyError}`:"Sin datos de demografía en este período"}</div>
             )}
           </div>
         )}

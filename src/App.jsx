@@ -2883,9 +2883,12 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
         )}
 
         {/* S7 Conclusions */}
-        {monthlySel.includes("m_conclusions")&&(conclAnalisis||conclTrabajo.some(t=>t.trim())||conclObj.facturacion||conclProximo.some(t=>t.trim()))&&(
+        {monthlySel.includes("m_conclusions")&&(
           <div style={{marginBottom:22}}>
             <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>📝 Conclusiones</div>
+            {!conclAnalisis.trim()&&!conclTrabajo.some(t=>t.trim())&&!conclObj.facturacion&&!conclObj.roas&&!conclObj.cpa&&!conclProximo.some(t=>t.trim())&&(
+              <div style={{border:"1px solid #e5e7eb",borderRadius:7,padding:16,textAlign:"center",color:"#bbb",fontSize:11}}>Completá las conclusiones en el panel izquierdo</div>
+            )}
             {conclAnalisis.trim()&&<div style={{marginBottom:10,border:"1px solid #e5e7eb",borderRadius:7,padding:"11px 13px"}}><div style={{fontSize:8,fontWeight:700,color:"#aaa",textTransform:"uppercase",marginBottom:4}}>Análisis Superficial</div><div style={{fontSize:11,color:"#333",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{conclAnalisis}</div></div>}
             {conclTrabajo.some(t=>t.trim())&&<div style={{marginBottom:10,border:"1px solid #e5e7eb",borderRadius:7,padding:"11px 13px"}}><div style={{fontSize:8,fontWeight:700,color:"#aaa",textTransform:"uppercase",marginBottom:6}}>Trabajo Realizado en el Mes</div>{conclTrabajo.filter(t=>t.trim()).map((t,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:3,fontSize:11,color:"#333"}}><span style={{color:"#e8572a",fontWeight:700}}>✓</span><span>{t}</span></div>)}</div>}
             {(conclObj.facturacion||conclObj.roas||conclObj.cpa)&&(

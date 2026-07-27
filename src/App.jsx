@@ -2486,6 +2486,25 @@ async function sheetsToPdf(pagesEl, filename) {
   pdf.save(filename);
 }
 
+// Genera el PDF de forma determinística: construye las hojas FRESCAS desde la
+// fuente viva (sourceId) en un contenedor temporal justo antes de capturar, así
+// el PDF siempre refleja el contenido completo, sin depender del preview ni de
+// timings/re-renders asíncronos.
+async function paginateToPdf(sourceId, filename) {
+  await loadPdfLibs();
+  const src = document.getElementById(sourceId);
+  if (!src) return;
+  const tmp = document.createElement("div");
+  tmp.style.cssText = "position:absolute;left:-99999px;top:0;background:#fff;";
+  document.body.appendChild(tmp);
+  try {
+    buildPdfSheets(src, tmp);
+    await sheetsToPdf(tmp, filename);
+  } finally {
+    document.body.removeChild(tmp);
+  }
+}
+
 // Renderiza `children` en una fuente oculta y muestra el resultado paginado en hojas A4.
 // Se reconstruye solo cuando cambia el contenido (MutationObserver).
 function PagedReport({ pagesId, inflow, children }) {
@@ -2579,11 +2598,9 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   async function generatePDF() {
     setGenerating(true);
     if (!preview) setPreview(true);
-    await new Promise(r=>setTimeout(r,700));
+    await new Promise(r=>setTimeout(r,300));
     try {
-      let pg = document.getElementById("pdf-pages");
-      if (!pg || !pg.querySelector(".pdf-sheet")) { await new Promise(r=>setTimeout(r,500)); pg = document.getElementById("pdf-pages"); }
-      if (pg && pg.querySelector(".pdf-sheet")) await sheetsToPdf(pg, `EcomBoost_${account.name}_${dateFrom}_${dateTo}.pdf`);
+      await paginateToPdf("pdf-target", `EcomBoost_${account.name}_${dateFrom}_${dateTo}.pdf`);
     } catch(e) { console.error(e); }
     setGenerating(false);
   }
@@ -2631,11 +2648,9 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   async function generateMonthlyPDF() {
     setMGenerating(true);
     if (!mPreview) setMPreview(true);
-    await new Promise(r=>setTimeout(r,700));
+    await new Promise(r=>setTimeout(r,300)); // dejar que el source (oculto) renderice
     try {
-      let pg = document.getElementById("monthly-pdf-pages");
-      if (!pg || !pg.querySelector(".pdf-sheet")) { await new Promise(r=>setTimeout(r,500)); pg = document.getElementById("monthly-pdf-pages"); }
-      if (pg && pg.querySelector(".pdf-sheet")) await sheetsToPdf(pg, `EcomBoost_Mensual_${account.name}_${dateFrom}_${dateTo}.pdf`);
+      await paginateToPdf("monthly-pdf-target", `EcomBoost_Mensual_${account.name}_${dateFrom}_${dateTo}.pdf`);
     } catch(e) { console.error(e); }
     setMGenerating(false);
   }

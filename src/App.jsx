@@ -2487,12 +2487,13 @@ async function sheetsToPdf(pagesEl, filename) {
 }
 
 // Genera el PDF de forma determinística: construye las hojas FRESCAS desde la
-// fuente viva (sourceId) en un contenedor temporal justo antes de capturar, así
-// el PDF siempre refleja el contenido completo, sin depender del preview ni de
-// timings/re-renders asíncronos.
-async function paginateToPdf(sourceId, filename) {
+// fuente viva en un contenedor temporal justo antes de capturar, así el PDF
+// refleja el contenido completo sin depender del preview ni de timings.
+// `source` es el ELEMENTO real (no un id): usar getElementById era ambiguo si
+// existía más de una instancia del reporte en el DOM.
+async function paginateToPdf(source, filename) {
   await loadPdfLibs();
-  const src = document.getElementById(sourceId);
+  const src = typeof source === "string" ? document.getElementById(source) : source;
   if (!src) return;
   const tmp = document.createElement("div");
   tmp.style.cssText = "position:absolute;left:-99999px;top:0;background:#fff;";
@@ -2507,8 +2508,13 @@ async function paginateToPdf(sourceId, filename) {
 
 // Renderiza `children` en una fuente oculta y muestra el resultado paginado en hojas A4.
 // Se reconstruye solo cuando cambia el contenido (MutationObserver).
-function PagedReport({ pagesId, inflow, children }) {
+function PagedReport({ pagesId, inflow, contentRef, children }) {
   const sourceRef = useRef(null), pagesRef = useRef(null);
+  // Exponer al padre el contenido vivo de ESTA instancia (para generar el PDF
+  // desde el DOM correcto, sin depender de ids globales).
+  useEffect(() => {
+    if (contentRef) contentRef.current = sourceRef.current?.firstElementChild || null;
+  });
   useEffect(() => {
     const src = sourceRef.current, pg = pagesRef.current;
     if (!src || !pg) return;
@@ -2552,6 +2558,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   const [monthlyPrevCamps,setMonthlyPrevCamps]= useState([]);
   const [monthlyError,  setMonthlyError] = useState(null);
   const [mPreview,      setMPreview]     = useState(true);
+  const monthlyContentRef = useRef(null); // DOM vivo del reporte de ESTA instancia
   const [mGenerating,   setMGenerating]  = useState(false);
   const [conclAnalisis, setConclAnalisis]= useState("");
   const [conclTrabajo,  setConclTrabajo] = useState([""]);
@@ -2650,7 +2657,8 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
     if (!mPreview) setMPreview(true);
     await new Promise(r=>setTimeout(r,300)); // dejar que el source (oculto) renderice
     try {
-      await paginateToPdf("monthly-pdf-target", `EcomBoost_Mensual_${account.name}_${dateFrom}_${dateTo}.pdf`);
+      const srcEl = monthlyContentRef.current || document.getElementById("monthly-pdf-target");
+      await paginateToPdf(srcEl, `EcomBoost_Mensual_${account.name}_${dateFrom}_${dateTo}.pdf`);
     } catch(e) { console.error(e); }
     setMGenerating(false);
   }
@@ -3463,7 +3471,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
         {!mPreview && (
           <div style={{color:T.textFaint,marginTop:80,textAlign:"center"}}><div style={{fontSize:32,marginBottom:12,opacity:0.2}}>⊟</div><div style={{fontSize:13}}>Hacé clic en "Ver preview" para previsualizar el reporte</div></div>
         )}
-        <PagedReport pagesId="monthly-pdf-pages" inflow={mPreview}><MonthlyPDFContent/></PagedReport>
+        <PagedReport pagesId="monthly-pdf-pages" inflow={mPreview} contentRef={monthlyContentRef}><MonthlyPDFContent/></PagedReport>
       </div>
     </div>
   );
@@ -5260,7 +5268,11 @@ export default function App() {
           />
         : noAcc;
       case "ganancias": return <GananciasModule account={activeAccount} currentUser={user} T={T} onAccountUpdated={(updatedAcc)=>setAllAccounts(prev=>prev.map(a=>a.id===updatedAcc.id?{...a,...updatedAcc}:a))}/>;
-      case "report":    return <ReportBuilder account={activeAccount} tasks={tasks} dateRange={dateRange} onDateRangeChange={rng=>{setDateRange(rng);const acc=allAccounts.find(a=>a.id===activeProjectId);if(acc?.meta_token)fetchMetaData(activeProjectId,acc.meta_token,acc.meta_ad_account_id,rng.from,rng.to);}}/>;
+      // El reporte se renderiza SOLO en el overlay de abajo (reportOpen). Montarlo
+      // también acá creaba una segunda instancia con su propio estado y su propio
+      // #monthly-pdf-target: el PDF se generaba de esa copia fantasma (vacía) en
+      // lugar de la que el usuario edita. Además duplicaba los fetches a Meta.
+      case "report":    return null;
       case "profit":    return <RentabilidadModule key={activeAccount?.id||"global"} account={activeAccount}/>;
       case "settings":  return canEdit ? <SettingsModule currentUser={user} allAccounts={allAccounts} allUsers={allUsers} setAllAccounts={setAllAccounts} setAllUsers={setAllUsers} toast={toast} onMetaSaved={(cfg,accId)=>{if(accId===activeProjectId){setAllAccounts(prev=>prev.map(a=>a.id===accId?{...a,...cfg}:a));}}}/> : null;
       default:          return null;

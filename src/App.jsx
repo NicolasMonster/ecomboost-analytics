@@ -57,6 +57,8 @@ const ICON_PATHS = {
   link:        "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
   copy:        "M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
   mail:        "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM22 6l-10 7L2 6",
+  pin:         "M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z M12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+  layers:      "M12 2 2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5",
 };
 function Icon({ name, size=16, color="currentColor", strokeWidth=2, style }) {
   const d = ICON_PATHS[name];
@@ -3496,29 +3498,70 @@ function CopyRow({ value, label, T, toast }) {
   );
 }
 
-function ClientOnboarding({ toast }) {
-  const T = useT();
-  const BM_URL = "https://business.facebook.com/settings/people/";
-  const copyLink = async () => {
-    try { await navigator.clipboard.writeText(BM_URL); toast?.("Link copiado ✓"); }
+function LinkBox({ url, T, toast }) {
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); toast?.("Link copiado ✓"); }
     catch { toast?.("No se pudo copiar", "error"); }
   };
+  return (
+    <div style={{display:"flex",gap:8,marginTop:10}}>
+      <a href={url} target="_blank" rel="noreferrer" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,padding:"8px 12px",color:"#60a5fa",textDecoration:"none",fontSize:12,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+        <Icon name="link" size={14}/> {url}
+      </a>
+      <button onClick={copy} title="Copiar link" style={{background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,padding:"0 12px",color:T.textMuted,cursor:"pointer",display:"flex",alignItems:"center",flexShrink:0}}>
+        <Icon name="copy" size={14}/>
+      </button>
+    </div>
+  );
+}
 
-  const steps = [
+function InfoNote({ icon, color, T, children }) {
+  const c = color || "#94a3b8";
+  return (
+    <div style={{display:"flex",gap:10,padding:"11px 14px",background:c+"14",border:`1px solid ${c}40`,borderRadius:10,marginBottom:10}}>
+      <span style={{color:c,flexShrink:0,display:"flex",alignItems:"center",marginTop:1}}><Icon name={icon} size={15}/></span>
+      <div style={{fontSize:12,color:T.textSub,lineHeight:1.6}}>{children}</div>
+    </div>
+  );
+}
+
+function StepList({ steps, accent, T }) {
+  return steps.map(s => (
+    <div key={s.n} style={{display:"flex",gap:14,marginBottom:14}}>
+      <div style={{width:30,height:30,borderRadius:"50%",background:accent,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,flexShrink:0}}>{s.n}</div>
+      <div style={{flex:1,minWidth:0,background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px"}}>
+        <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:5,letterSpacing:"0.01em"}}>Paso {s.n}: {s.title}</div>
+        <div style={{fontSize:12,color:T.textMuted,lineHeight:1.65}}>{s.body}</div>
+        {s.extra}
+      </div>
+    </div>
+  ));
+}
+
+const ONBOARDING_PLATFORMS = [
+  { id:"meta",   label:"Meta Ads",  color:"#1877f2" },
+  { id:"google", label:"Google Ads", color:"#ea4335" },
+  { id:"tiktok", label:"TikTok",    color:"#111827" },
+];
+
+function ClientOnboarding({ toast, account }) {
+  const T = useT();
+  const [platform, setPlatform] = useState("meta");
+  const accountLabel = account?.name ? `«${account.name}»` : "la marca";
+
+  const emailRows = (
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:10}}>
+      <CopyRow value="ecomboostarg@gmail.com" label="Administrador" T={T} toast={toast}/>
+      <CopyRow value="ceciliaernetabr@gmail.com" label="Administrador" T={T} toast={toast}/>
+    </div>
+  );
+
+  const metaSteps = [
     {
       n: 1,
       title: "Ingresar a la configuración de negocio",
       body: "Abrí este link — te lleva directo a la sección de personas del Administrador Comercial de Meta.",
-      extra: (
-        <div style={{display:"flex",gap:8,marginTop:10}}>
-          <a href={BM_URL} target="_blank" rel="noreferrer" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,padding:"8px 12px",color:"#60a5fa",textDecoration:"none",fontSize:12,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-            <Icon name="link" size={14}/> {BM_URL}
-          </a>
-          <button onClick={copyLink} title="Copiar link" style={{background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,padding:"0 12px",color:T.textMuted,cursor:"pointer",display:"flex",alignItems:"center",flexShrink:0}}>
-            <Icon name="copy" size={14}/>
-          </button>
-        </div>
-      ),
+      extra: <LinkBox url="https://business.facebook.com/settings/people/" T={T} toast={toast}/>,
     },
     {
       n: 2,
@@ -3529,12 +3572,7 @@ function ClientOnboarding({ toast }) {
       n: 3,
       title: "Agregar el correo electrónico a dar acceso y presionar «Siguiente»",
       body: "Se pueden cargar más de un correo a la vez. Invitá a estos dos con rol Administrador (tocá para copiar cada uno):",
-      extra: (
-        <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:10}}>
-          <CopyRow value="ecomboostarg@gmail.com" label="Administrador" T={T} toast={toast}/>
-          <CopyRow value="ceciliaernetabr@gmail.com" label="Administrador" T={T} toast={toast}/>
-        </div>
-      ),
+      extra: emailRows,
     },
     {
       n: 4,
@@ -3548,33 +3586,123 @@ function ClientOnboarding({ toast }) {
     },
   ];
 
+  const googleSteps = [
+    {
+      n: 1,
+      title: "Entrar a Google Ads",
+      body: `Ingresá a ads.google.com con la cuenta dueña de ${accountLabel}.`,
+      extra: <LinkBox url="https://ads.google.com" T={T} toast={toast}/>,
+    },
+    {
+      n: 2,
+      title: "Ir a Administrador → Acceso y seguridad",
+      body: "En el menú de la izquierda, abajo del todo: Administrador (ícono de engranaje) → Acceso y seguridad.",
+    },
+    {
+      n: 3,
+      title: "Pestaña «Usuarios» → botón azul «+»",
+      body: "Ahí arranca el alta de un usuario nuevo.",
+    },
+    {
+      n: 4,
+      title: "Cargar el correo y elegir el nivel de acceso",
+      body: "Elegí el nivel Administrador y presioná «Enviar invitación». Repetí con el segundo correo (tocá para copiar cada uno):",
+      extra: emailRows,
+    },
+  ];
+  const googleNotes = (
+    <>
+      <InfoNote icon="layers" color="#ea4335" T={T}>
+        Google ofrece 5 niveles de acceso: Solo correo electrónico, Facturación, Solo lectura, Estándar y Administrador.
+        Estándar permite editar campañas pero no gestionar usuarios ni conversiones completas; <b>Administrador</b> es el
+        nivel que evita depender de otra persona para cada permiso.
+      </InfoNote>
+      <InfoNote icon="mail" color="#ea4335" T={T}>
+        Cómo se acepta: al correo invitado le llega un mail — hace clic en el link y sigue los pasos.
+      </InfoNote>
+      <InfoNote icon="bulb" color="#ea4335" T={T}>
+        Google recomienda dejar más de un administrador. Si la cuenta tiene uno solo y esa persona pierde el acceso,
+        se puede perder el control de las etiquetas de conversión.
+      </InfoNote>
+      <InfoNote icon="pin" color="#ea4335" T={T}>
+        El número de cliente (10 dígitos) se ve arriba a la derecha, al lado del nombre de la cuenta.
+      </InfoNote>
+    </>
+  );
+
+  const tiktokSteps = [
+    {
+      n: 1,
+      title: "Entrar al Business Center",
+      body: "Ingresá a business.tiktok.com con la cuenta dueña.",
+      extra: <LinkBox url="https://business.tiktok.com" T={T} toast={toast}/>,
+    },
+    {
+      n: 2,
+      title: "Usuarios → «Asignar un miembro nuevo»",
+      body: "En el menú de la izquierda entrá a Usuarios y tocá «Asignar un miembro nuevo».",
+    },
+    {
+      n: 3,
+      title: "Cargar el correo y elegir el rol Administrador",
+      body: "Administrador da acceso completo a todo el Business Center (a diferencia de Estándar, que solo da acceso a los recursos que se le asignen a mano). Cargá los dos correos (tocá para copiar cada uno):",
+      extra: emailRows,
+    },
+    {
+      n: 4,
+      title: "Asignar los recursos",
+      body: "En el paso siguiente se seleccionan uno por uno: cuenta publicitaria, píxel, catálogo, audiencias y la cuenta de TikTok. Para la cuenta de TikTok elegí entre «Mostrar en perfil de TikTok y como anuncios» (si vamos a publicar desde el perfil) o «Mostrar solo como anuncios» (si los videos corren solo como pauta).",
+    },
+    {
+      n: 5,
+      title: "Enviar la invitación",
+      body: "Llega por mail y se puede reenviar si no aparece.",
+    },
+  ];
+  const tiktokNotes = (
+    <InfoNote icon="users" color="#111827" T={T}>
+      Si el miembro ya está cargado y solo falta darle recursos: Usuarios → buscar el miembro → columna Acción →
+      Conceder acceso → seleccionar los recursos → Guardar.
+    </InfoNote>
+  );
+
+  const current = ONBOARDING_PLATFORMS.find(p => p.id === platform);
+  const stepsByPlatform = { meta: metaSteps, google: googleSteps, tiktok: tiktokSteps };
+  const notesByPlatform = { meta: null, google: googleNotes, tiktok: tiktokNotes };
+  const subtitleByPlatform = {
+    meta:   "Dar acceso a la cuenta de Meta Ads",
+    google: "Dar acceso a la cuenta de Google Ads",
+    tiktok: "Dar acceso al TikTok Business Center",
+  };
+
   return (
     <div style={{padding:"24px 28px",maxWidth:800}}>
-      <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:14,padding:"18px 20px",marginBottom:22}}>
+      <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:14,padding:"18px 20px",marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
-          <div style={{width:38,height:38,borderRadius:10,background:"#e8572a18",border:"1px solid #e8572a33",display:"flex",alignItems:"center",justifyContent:"center",color:"#e8572a",flexShrink:0}}>
+          <div style={{width:38,height:38,borderRadius:10,background:current.color+"18",border:`1px solid ${current.color}33`,display:"flex",alignItems:"center",justifyContent:"center",color:current.color,flexShrink:0}}>
             <Icon name="key" size={18}/>
           </div>
           <div>
             <div style={{fontWeight:700,fontSize:16,color:T.text}}>Onboarding</div>
-            <div style={{fontSize:12,color:T.textMuted}}>Dar acceso a la cuenta de Meta Ads</div>
+            <div style={{fontSize:12,color:T.textMuted}}>{subtitleByPlatform[platform]}</div>
           </div>
         </div>
         <div style={{fontSize:12,color:T.textMuted,lineHeight:1.65}}>
-          Para gestionar tus campañas necesitamos que nos des acceso desde el Administrador Comercial de Meta. Seguí estos 5 pasos:
+          Para gestionar tus campañas necesitamos que nos des acceso a cada plataforma. Elegí una abajo y seguí los pasos:
         </div>
       </div>
 
-      {steps.map(s => (
-        <div key={s.n} style={{display:"flex",gap:14,marginBottom:14}}>
-          <div style={{width:30,height:30,borderRadius:"50%",background:"#e8572a",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,flexShrink:0}}>{s.n}</div>
-          <div style={{flex:1,minWidth:0,background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px"}}>
-            <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:5,letterSpacing:"0.01em"}}>Paso {s.n}: {s.title}</div>
-            <div style={{fontSize:12,color:T.textMuted,lineHeight:1.65}}>{s.body}</div>
-            {s.extra}
-          </div>
-        </div>
-      ))}
+      <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
+        {ONBOARDING_PLATFORMS.map(p => (
+          <button key={p.id} onClick={()=>setPlatform(p.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 14px",borderRadius:8,border:`1px solid ${platform===p.id?p.color:T.border2}`,background:platform===p.id?p.color+"18":"transparent",color:platform===p.id?p.color:T.textMuted,cursor:"pointer",fontSize:13,fontWeight:platform===p.id?700:400,fontFamily:"inherit"}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:p.color,flexShrink:0}}/>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <StepList steps={stepsByPlatform[platform]} accent={current.color} T={T}/>
+      {notesByPlatform[platform] && <div style={{marginTop:6}}>{notesByPlatform[platform]}</div>}
     </div>
   );
 }
@@ -5280,7 +5408,7 @@ export default function App() {
   function renderPage() {
     const noAcc = <div style={{padding:40,textAlign:"center",color:T.textFaint,fontSize:14}}>Seleccioná una cuenta para continuar.</div>;
     switch(page) {
-      case "onboarding": return <ClientOnboarding toast={toast}/>;
+      case "onboarding": return <ClientOnboarding toast={toast} account={activeAccount}/>;
       case "overview":  return <OverviewModule accounts={allAccounts} tasks={tasks} onSelect={id=>{setActiveProjectId(id);setPage("dashboard");}}/>;
       case "dashboard": return <DashboardPage account={activeAccount} compareData={compareData}/>;
       case "campaigns": return activeAccount ? <div style={{padding:"20px 24px"}}><CampaignsTable campaigns={activeAccount.campaigns||[]} goals={activeAccount.goals||{roas:3,cpa:10,ctr:1.5}}/></div> : noAcc;

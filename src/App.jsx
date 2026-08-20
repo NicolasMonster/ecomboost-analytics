@@ -54,6 +54,9 @@ const ICON_PATHS = {
   paperclip:   "M21.4 11.05 12.2 20.3a5 5 0 0 1-7.1-7.1l9.2-9.2a3.3 3.3 0 0 1 4.7 4.7l-9.2 9.2a1.7 1.7 0 0 1-2.4-2.4l8.5-8.5",
   check:       "M20 6L9 17l-5-5",
   logout:      "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
+  link:        "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+  copy:        "M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
+  mail:        "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM22 6l-10 7L2 6",
 };
 function Icon({ name, size=16, color="currentColor", strokeWidth=2, style }) {
   const d = ICON_PATHS[name];
@@ -3477,6 +3480,105 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   );
 }
 
+// ─── CLIENT ONBOARDING ────────────────────────────────────────────────────────
+function CopyRow({ value, label, T, toast }) {
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); toast?.("Copiado ✓"); }
+    catch { toast?.("No se pudo copiar", "error"); }
+  };
+  return (
+    <button onClick={copy} style={{display:"flex",alignItems:"center",gap:8,background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,padding:"8px 12px",cursor:"pointer",fontFamily:"inherit",width:"100%",textAlign:"left"}}>
+      <span style={{color:T.textMuted,display:"flex",alignItems:"center",flexShrink:0}}><Icon name="mail" size={14}/></span>
+      <span style={{flex:1,fontSize:12,color:T.text,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span>
+      {label && <span style={{fontSize:10,fontWeight:700,color:"#e8572a",background:"#e8572a18",border:"1px solid #e8572a33",borderRadius:5,padding:"2px 8px",flexShrink:0,whiteSpace:"nowrap"}}>{label}</span>}
+      <span style={{color:T.textDim,display:"flex",alignItems:"center",flexShrink:0}}><Icon name="copy" size={13}/></span>
+    </button>
+  );
+}
+
+function ClientOnboarding({ toast }) {
+  const T = useT();
+  const BM_URL = "https://business.facebook.com/settings/people/";
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(BM_URL); toast?.("Link copiado ✓"); }
+    catch { toast?.("No se pudo copiar", "error"); }
+  };
+
+  const steps = [
+    {
+      n: 1,
+      title: "Ingresar a la configuración de negocio",
+      body: "Abrí este link — te lleva directo a la sección de personas del Administrador Comercial de Meta.",
+      extra: (
+        <div style={{display:"flex",gap:8,marginTop:10}}>
+          <a href={BM_URL} target="_blank" rel="noreferrer" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,padding:"8px 12px",color:"#60a5fa",textDecoration:"none",fontSize:12,fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            <Icon name="link" size={14}/> {BM_URL}
+          </a>
+          <button onClick={copyLink} title="Copiar link" style={{background:T.bg,border:`1px solid ${T.border2}`,borderRadius:8,padding:"0 12px",color:T.textMuted,cursor:"pointer",display:"flex",alignItems:"center",flexShrink:0}}>
+            <Icon name="copy" size={14}/>
+          </button>
+        </div>
+      ),
+    },
+    {
+      n: 2,
+      title: "Tocar en el botón «Invitar personas»",
+      body: "Dentro de esa sección vas a encontrar el botón para invitar gente al negocio.",
+    },
+    {
+      n: 3,
+      title: "Agregar el correo electrónico a dar acceso y presionar «Siguiente»",
+      body: "Se pueden cargar más de un correo a la vez. Invitá a estos dos con rol Administrador (tocá para copiar cada uno):",
+      extra: (
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:10}}>
+          <CopyRow value="ecomboostarg@gmail.com" label="Administrador" T={T} toast={toast}/>
+          <CopyRow value="ceciliaernetabr@gmail.com" label="Administrador" T={T} toast={toast}/>
+        </div>
+      ),
+    },
+    {
+      n: 4,
+      title: "Cambiar el control total de «Ninguno» a «Administrar»",
+      body: "Meta suele dejarlo en «Ninguno» por defecto — cambialo a «Administrar» y presioná «Siguiente».",
+    },
+    {
+      n: 5,
+      title: "Ir a «Cuentas publicitarias» y dar acceso a la cuenta",
+      body: "Seleccioná la cuenta a utilizar, activá el control total de la cuenta publicitaria y presioná el botón «Invitar».",
+    },
+  ];
+
+  return (
+    <div style={{padding:"24px 28px",maxWidth:800}}>
+      <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:14,padding:"18px 20px",marginBottom:22}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+          <div style={{width:38,height:38,borderRadius:10,background:"#e8572a18",border:"1px solid #e8572a33",display:"flex",alignItems:"center",justifyContent:"center",color:"#e8572a",flexShrink:0}}>
+            <Icon name="key" size={18}/>
+          </div>
+          <div>
+            <div style={{fontWeight:700,fontSize:16,color:T.text}}>Onboarding</div>
+            <div style={{fontSize:12,color:T.textMuted}}>Dar acceso a la cuenta de Meta Ads</div>
+          </div>
+        </div>
+        <div style={{fontSize:12,color:T.textMuted,lineHeight:1.65}}>
+          Para gestionar tus campañas necesitamos que nos des acceso desde el Administrador Comercial de Meta. Seguí estos 5 pasos:
+        </div>
+      </div>
+
+      {steps.map(s => (
+        <div key={s.n} style={{display:"flex",gap:14,marginBottom:14}}>
+          <div style={{width:30,height:30,borderRadius:"50%",background:"#e8572a",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,flexShrink:0}}>{s.n}</div>
+          <div style={{flex:1,minWidth:0,background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px"}}>
+            <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:5,letterSpacing:"0.01em"}}>Paso {s.n}: {s.title}</div>
+            <div style={{fontSize:12,color:T.textMuted,lineHeight:1.65}}>{s.body}</div>
+            {s.extra}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── CLIENT PORTAL ───────────────────────────────────────────────────────────
 function ClientPortal({account, tasks, currentUser, toast}) {
   const T = useT();
@@ -4604,6 +4706,10 @@ export default function App() {
   const [compareRange, setCompareRange] = useState(null);
   const [compareData, setCompareData] = useState(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
+  const [clientTab, setClientTab] = useState(() => {
+    try { return localStorage.getItem("eb_client_tab") || "onboarding"; } catch { return "onboarding"; }
+  });
+  useEffect(() => { try { localStorage.setItem("eb_client_tab", clientTab); } catch {} }, [clientTab]);
 
   function toast(msg, type="success") {
     const id = Date.now();
@@ -5224,11 +5330,18 @@ export default function App() {
       <div style={{minHeight:"100vh",background:T.bg,display:"flex",flexDirection:"column"}}>
         <div style={{background:T.bg1,borderBottom:`1px solid ${T.border}`,padding:"0 24px",height:56,display:"flex",alignItems:"center",gap:14}}>
           <Logo/>
+          <div style={{marginLeft:24,display:"flex",gap:4}}>
+            {[["onboarding","Onboarding"],["resumen","Resumen"]].map(([id,label])=>(
+              <button key={id} onClick={()=>setClientTab(id)} style={{padding:"7px 14px",borderRadius:7,border:"none",background:clientTab===id?"#e8572a":"transparent",color:clientTab===id?"#fff":T.textMuted,cursor:"pointer",fontSize:13,fontWeight:clientTab===id?600:400,fontFamily:"inherit"}}>{label}</button>
+            ))}
+          </div>
           <span style={{marginLeft:"auto",fontSize:12,color:T.textMuted}}>{user.name||user.email}</span>
           <button onClick={handleLogout} style={{padding:"5px 14px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:6,color:T.textSub,cursor:"pointer",fontSize:12}}>Salir</button>
         </div>
         <div style={{flex:1}}>
-          <ClientPortal account={activeAccount} tasks={tasks} currentUser={user} toast={toast}/>
+          {clientTab==="onboarding"
+            ? <ClientOnboarding toast={toast}/>
+            : <ClientPortal account={activeAccount} tasks={tasks} currentUser={user} toast={toast}/>}
         </div>
       </div>
       <ToastContainer toasts={toasts}/>

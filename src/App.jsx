@@ -3579,72 +3579,6 @@ function ClientOnboarding({ toast }) {
   );
 }
 
-// ─── CLIENT PORTAL ───────────────────────────────────────────────────────────
-function ClientPortal({account, tasks, currentUser, toast}) {
-  const T = useT();
-  if (!account) return (
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:16}}>
-      <div style={{opacity:0.4}}><Icon name="dashboard" size={40} strokeWidth={1.5}/></div>
-      <div style={{fontSize:18,fontWeight:700,color:T.text}}>Bienvenido, {currentUser?.name||"cliente"}</div>
-      <div style={{fontSize:13,color:T.textMuted}}>No tenés cuentas asignadas aún.</div>
-    </div>
-  );
-
-  const accTasks = tasks.filter(t=>t.account_id===account.id);
-  const doneCount = accTasks.filter(t=>t.status==="done").length;
-  const progressCount = accTasks.filter(t=>t.status==="inprogress").length;
-
-  return (
-    <div style={{padding:"24px 28px",maxWidth:800}}>
-      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:24,background:T.bg1,border:`1px solid ${T.border}`,borderRadius:14,padding:"18px 20px"}}>
-        {account.logo_url ? <img src={account.logo_url} alt="logo" style={{width:52,height:52,objectFit:"contain",borderRadius:10,border:`1px solid ${T.border}`}}/> : <div style={{width:52,height:52,borderRadius:10,background:"#e8572a",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:20}}>{account.name?.[0]||"?"}</div>}
-        <div style={{flex:1}}>
-          <div style={{fontWeight:700,fontSize:18,color:T.text}}>{account.name}</div>
-          <div style={{fontSize:13,color:T.textMuted}}>Portal del cliente</div>
-        </div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
-        {[
-          {label:"Inversión",val:`$${(account.spend||0).toLocaleString("es-AR")}`,color:"#e8572a"},
-          {label:"Ingresos",val:`$${(account.revenue||0).toLocaleString("es-AR")}`,color:T.ok.text},
-          {label:"ROAS",val:`${(account.roas||0).toFixed(2)}x`,color:"#60a5fa"},
-          {label:"Conversiones",val:account.conversions||0,color:"#a78bfa"},
-        ].map(m=>(
-          <div key={m.label} style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",textAlign:"center"}}>
-            <div style={{fontSize:11,color:T.textMuted,marginBottom:4}}>{m.label}</div>
-            <div style={{fontSize:20,fontWeight:700,color:m.color}}>{m.val}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"18px 20px",marginBottom:16}}>
-        <div style={{fontWeight:600,color:T.textSub,marginBottom:14,fontSize:13}}>Estado de tareas</div>
-        <div style={{display:"flex",gap:16,marginBottom:14}}>
-          <div style={{flex:1,background:T.ok.bg,border:`1px solid ${T.ok.border}`,borderRadius:8,padding:"10px 14px",textAlign:"center"}}>
-            <div style={{fontSize:22,fontWeight:700,color:T.ok.text}}>{doneCount}</div>
-            <div style={{fontSize:11,color:T.ok.text}}>Completadas</div>
-          </div>
-          <div style={{flex:1,background:T.warn.bg,border:`1px solid ${T.warn.border}`,borderRadius:8,padding:"10px 14px",textAlign:"center"}}>
-            <div style={{fontSize:22,fontWeight:700,color:T.warn.text}}>{progressCount}</div>
-            <div style={{fontSize:11,color:T.warn.text}}>En progreso</div>
-          </div>
-          <div style={{flex:1,background:T.bg2,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 14px",textAlign:"center"}}>
-            <div style={{fontSize:22,fontWeight:700,color:T.textSub}}>{accTasks.length-doneCount-progressCount}</div>
-            <div style={{fontSize:11,color:T.textMuted}}>Pendientes</div>
-          </div>
-        </div>
-        {accTasks.map(t=>(
-          <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:`1px solid ${T.divider}`}}>
-            <span style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:t.status==="done"?T.ok.bg:t.status==="inprogress"?T.warn.bg:T.bg2,color:t.status==="done"?T.ok.text:t.status==="inprogress"?T.warn.text:T.textDim,fontWeight:600,whiteSpace:"nowrap"}}>{t.status==="done"?"✓ Hecho":t.status==="inprogress"?"● En progreso":"○ Pendiente"}</span>
-            <span style={{fontSize:13,color:T.text,flex:1}}>{t.title}</span>
-            {t.priority==="high"&&<span style={{fontSize:10,color:T.bad.text,background:T.bad.bg,padding:"1px 6px",borderRadius:10}}>Alta</span>}
-          </div>
-        ))}
-        {accTasks.length===0&&<div style={{textAlign:"center",padding:20,color:T.textFaint,fontSize:13}}>Sin tareas asignadas.</div>}
-      </div>
-    </div>
-  );
-}
-
 // ─── RENTABILIDAD MODULE ─────────────────────────────────────────────────────
 function RentabilidadModule({ account }) {
   const T = useT();
@@ -3974,6 +3908,7 @@ function RentabilidadModule({ account }) {
 
 // ─── NAVIGATION ──────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
+  {id:"onboarding", label:"Onboarding",  icon:"key"},
   {id:"dashboard", label:"Dashboard",    icon:"dashboard"},
   {id:"campaigns", label:"Campañas",     icon:"campaigns"},
   {id:"creatives", label:"Creativos",    icon:"creatives"},
@@ -3984,6 +3919,8 @@ const NAV_ITEMS = [
   {id:"profit",     label:"Rentabilidad", icon:"profit"},
   {id:"settings",  label:"Ajustes",      icon:"settings"},
 ];
+// Páginas visibles para el rol cliente — sin Reporte ni Ajustes.
+const CLIENT_ALLOWED_PAGES = ["onboarding","dashboard","campaigns","creatives","tasks","audit","ganancias","profit"];
 
 // ─── OVERVIEW MODULE ─────────────────────────────────────────────────────────
 function OverviewModule({ accounts, tasks, onSelect }) {
@@ -4706,10 +4643,11 @@ export default function App() {
   const [compareRange, setCompareRange] = useState(null);
   const [compareData, setCompareData] = useState(null);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
-  const [clientTab, setClientTab] = useState(() => {
-    try { return localStorage.getItem("eb_client_tab") || "onboarding"; } catch { return "onboarding"; }
-  });
-  useEffect(() => { try { localStorage.setItem("eb_client_tab", clientTab); } catch {} }, [clientTab]);
+  // Si un cliente queda con una página no permitida (ej. quedó guardada de otro
+  // rol en el mismo navegador), lo mandamos al Onboarding en vez de dejarlo en blanco.
+  useEffect(() => {
+    if (user?.role === "client" && !CLIENT_ALLOWED_PAGES.includes(page)) setPage("onboarding");
+  }, [user?.role, page]);
 
   function toast(msg, type="success") {
     const id = Date.now();
@@ -5322,46 +5260,27 @@ export default function App() {
   const isMaster = user.role === "master";
   const canEdit = user.role === "master" || user.role === "team";
 
+  // El cliente ve exactamente la misma UI (sidebar + topbar) que master/team,
+  // solo que restringida a su(s) cuenta(s) asignada(s) (allAccounts ya viene
+  // scopeada por account_access) y sin Reporte ni Ajustes.
   const activeAccount = allAccounts.find(a=>a.id===activeProjectId)||allAccounts[0]||null;
-
-  // Client portal — simplified view
-  if (isClient) return (
-    <ThemeCtx.Provider value={T}>
-      <div style={{minHeight:"100vh",background:T.bg,display:"flex",flexDirection:"column"}}>
-        <div style={{background:T.bg1,borderBottom:`1px solid ${T.border}`,padding:"0 24px",height:56,display:"flex",alignItems:"center",gap:14}}>
-          <Logo/>
-          <div style={{marginLeft:24,display:"flex",gap:4}}>
-            {[["onboarding","Onboarding"],["resumen","Resumen"]].map(([id,label])=>(
-              <button key={id} onClick={()=>setClientTab(id)} style={{padding:"7px 14px",borderRadius:7,border:"none",background:clientTab===id?"#e8572a":"transparent",color:clientTab===id?"#fff":T.textMuted,cursor:"pointer",fontSize:13,fontWeight:clientTab===id?600:400,fontFamily:"inherit"}}>{label}</button>
-            ))}
-          </div>
-          <span style={{marginLeft:"auto",fontSize:12,color:T.textMuted}}>{user.name||user.email}</span>
-          <button onClick={handleLogout} style={{padding:"5px 14px",background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:6,color:T.textSub,cursor:"pointer",fontSize:12}}>Salir</button>
-        </div>
-        <div style={{flex:1}}>
-          {clientTab==="onboarding"
-            ? <ClientOnboarding toast={toast}/>
-            : <ClientPortal account={activeAccount} tasks={tasks} currentUser={user} toast={toast}/>}
-        </div>
-      </div>
-      <ToastContainer toasts={toasts}/>
-    </ThemeCtx.Provider>
-  );
 
   // Visible nav items
   const navItems = NAV_ITEMS.filter(n=>{
-    if (isClient) return n.id==="dashboard" || n.id==="report";
-    if (n.id==="settings") return canEdit;
+    if (n.id==="onboarding") return isClient;
+    if (n.id==="report")    return !isClient;
+    if (n.id==="settings")  return canEdit;
     return true;
   });
 
   // Sidebar width
   const sw = sidebarOpen ? 220 : 60;
-  const reportOpen = page === "report";
+  const reportOpen = page === "report" && !isClient;
 
   function renderPage() {
     const noAcc = <div style={{padding:40,textAlign:"center",color:T.textFaint,fontSize:14}}>Seleccioná una cuenta para continuar.</div>;
     switch(page) {
+      case "onboarding": return <ClientOnboarding toast={toast}/>;
       case "overview":  return <OverviewModule accounts={allAccounts} tasks={tasks} onSelect={id=>{setActiveProjectId(id);setPage("dashboard");}}/>;
       case "dashboard": return <DashboardPage account={activeAccount} compareData={compareData}/>;
       case "campaigns": return activeAccount ? <div style={{padding:"20px 24px"}}><CampaignsTable campaigns={activeAccount.campaigns||[]} goals={activeAccount.goals||{roas:3,cpa:10,ctr:1.5}}/></div> : noAcc;

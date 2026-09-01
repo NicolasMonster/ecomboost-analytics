@@ -192,6 +192,15 @@ function fN(v, t) {
   if (t==="k") { if (v>=1000000) return `${(v/1000000).toFixed(1)}M`; if (v>=1000) return `${(v/1000).toFixed(0)}k`; return String(Math.round(v)); }
   return String(v);
 }
+// CTR Único real: nunca cae al CTR general. Si Meta no devuelve `unique_ctr`
+// (pasa en algunas cuentas/versiones de API), se calcula desde clics únicos / alcance.
+function getCtrUnico(row) {
+  const uc = parseFloat(row?.unique_ctr || 0);
+  if (uc > 0) return uc;
+  const reach = parseInt(row?.reach || 0);
+  const uClicks = parseFloat(row?.unique_clicks || 0);
+  return reach > 0 ? (uClicks / reach) * 100 : 0;
+}
 
 // ─── DEMO DATA ────────────────────────────────────────────────────────────────
 const DEMO_USERS = [
@@ -2628,7 +2637,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
     const prevTo   = new Date(new Date(dateFrom).getTime()-86400000).toISOString().slice(0,10);
     const prevFrom = new Date(new Date(dateFrom).getTime()-days*86400000).toISOString().slice(0,10);
     const prevTr   = JSON.stringify({ since: prevFrom, until: prevTo });
-    const baseF    = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr";
+    const baseF    = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_clicks";
     try {
       const [platR,ageR,regionR,prevR,prevCampR] = await Promise.all([
         fetch(`https://graph.facebook.com/${META_V}/${accId}/insights?${new URLSearchParams({access_token:token,fields:"spend,actions,action_values,impressions",time_range:tr,level:"account",breakdowns:"publisher_platform,platform_position"})}`).then(r=>r.json()),
@@ -4985,7 +4994,7 @@ export default function App() {
       try {
         const accId = acc.meta_ad_account_id.startsWith("act_") ? acc.meta_ad_account_id : `act_${acc.meta_ad_account_id}`;
         const tr = JSON.stringify({ since: compareRange.from, until: compareRange.to });
-        const fields = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_outbound_clicks,frequency,website_purchase_roas,purchase_roas";
+        const fields = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_clicks,unique_outbound_clicks,frequency,website_purchase_roas,purchase_roas";
         const META_V = "v22.0";
         const mk = extra => new URLSearchParams({ access_token: acc.meta_token, fields, time_range: tr, ...extra }).toString();
         const [insJson, dailyJson] = await Promise.all([
@@ -5009,7 +5018,7 @@ export default function App() {
         const funnel = {
           creativos: {
             alcance: parseInt(s.reach||0), impresiones: parseInt(s.impressions||0),
-            ctrUnico: parseFloat(s.unique_ctr||s.ctr||0), clicsEnlace, cpm: parseFloat(s.cpm||0),
+            ctrUnico: getCtrUnico(s), clicsEnlace, cpm: parseFloat(s.cpm||0),
             clicsUnicosEnlace: parseInt(s.unique_outbound_clicks||0), frecuencia: parseFloat(s.frequency||0),
           },
           acciones: {
@@ -5026,7 +5035,7 @@ export default function App() {
         const daily = (dailyJson.data||[]).map(d => {
           const sp = parseFloat(d.spend||0), rv = gaFirst(d.action_values, PURCHASE), cn = gaFirst(d.actions, PURCHASE);
           return { day:d.date_start, spend:sp, revenue:rv, roas:sp>0?rv/sp:0, conversions:cn,
-            impressions:parseInt(d.impressions||0), ctr:parseFloat(d.unique_ctr||d.ctr||0), cpm:parseFloat(d.cpm||0) };
+            impressions:parseInt(d.impressions||0), ctr:getCtrUnico(d), cpm:parseFloat(d.cpm||0) };
         });
         setCompareData({ from: compareRange.from, to: compareRange.to, funnel, daily });
       } catch(e) { if (!cancelled) console.error("Compare fetch:", e); }
@@ -5061,12 +5070,12 @@ export default function App() {
       const tr = JSON.stringify({ since: from, until: to });
       // outbound_clicks = "Clics en Enlace" real (excluye reacciones/shares)
       // unique_ctr      = "CTR Único" real
-      const fields = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_outbound_clicks,frequency,clicks,website_purchase_roas,purchase_roas,video_thruplay_watched_actions,video_avg_time_watched_actions";
+      const fields = "spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_clicks,unique_outbound_clicks,frequency,clicks,website_purchase_roas,purchase_roas,video_thruplay_watched_actions,video_avg_time_watched_actions";
 
       const mkParams = extra => new URLSearchParams({ access_token: token, fields, time_range: tr, ...extra }).toString();
 
-      const campFields = "campaign_name,campaign_id,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr";
-      const adInsFields = "ad_id,ad_name,adset_name,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,frequency,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_avg_time_watched_actions,video_thruplay_watched_actions";
+      const campFields = "campaign_name,campaign_id,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_clicks";
+      const adInsFields = "ad_id,ad_name,adset_name,spend,impressions,reach,outbound_clicks,actions,action_values,cpm,cpc,ctr,unique_ctr,unique_clicks,frequency,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_avg_time_watched_actions,video_thruplay_watched_actions";
 
       // PASO 1: 5 llamadas en paralelo (sin metadata de ads — se obtiene después)
       const META_V = "v22.0";
@@ -5217,7 +5226,7 @@ export default function App() {
         creativos: {
           alcance:            parseInt(s.reach||0),
           impresiones,
-          ctrUnico:           parseFloat(s.unique_ctr||s.ctr||0),
+          ctrUnico:           getCtrUnico(s),
           clicsEnlace,
           cpm:                parseFloat(s.cpm||0),
           clicsUnicosEnlace:  parseInt(s.unique_outbound_clicks||0),
@@ -5263,7 +5272,7 @@ export default function App() {
           day: d.date_start, spend: sp, revenue: rv,
           roas: sp>0?rv/sp:0, conversions: cn,
           impressions: impr,
-          ctr: parseFloat(d.unique_ctr||d.ctr||0),
+          ctr: getCtrUnico(d),
           cpm: parseFloat(d.cpm||0),
           cpc: parseFloat(d.cpc||0),
           clicks: clks,
@@ -5289,7 +5298,7 @@ export default function App() {
           revenue:rv,
           roas:   sp > 0 ? rv / sp : 0,
           cpa:    cn > 0 ? sp / cn : 0,
-          ctr:    parseFloat(row.unique_ctr||row.ctr||0),
+          ctr:    getCtrUnico(row),
           conversions: cn,
         };
       });
@@ -5343,7 +5352,7 @@ export default function App() {
           retention95:  v3s > 0 ? (p95  / v3s) * 100 : 0,
           retention100: v3s > 0 ? (p100 / v3s) * 100 : 0,
           thruplays: thr, avgWatchTime: avgT, videoViews3s: v3s,
-          ctr: parseFloat(row.unique_ctr||row.ctr||0), cpm: parseFloat(row.cpm||0),
+          ctr: getCtrUnico(row), cpm: parseFloat(row.cpm||0),
           cpc: parseFloat(row.cpc||0), frecuencia: parseFloat(row.frequency||0),
           alcance: parseInt(row.reach||0), impressions: impr,
           clics: parseOutboundClicks(row.outbound_clicks), conversions: cn,

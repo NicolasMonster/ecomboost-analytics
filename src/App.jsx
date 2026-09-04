@@ -1102,7 +1102,7 @@ const COLUMNS = [
   {id:"done",label:"Listo",color:"#4ade80"},
 ];
 
-function TaskCard({ task, canEdit, allUsers, onMove, onDelete }) {
+function TaskCard({ task, canEdit, allUsers, onMove, onDelete, onEdit }) {
   const T = useT();
   const assignee = allUsers.find(u=>u.id===(task.assignee_id||task.assignee));
   const isOverdue = task.dueDate && new Date(task.dueDate)<new Date() && task.status!=="done";
@@ -1113,7 +1113,12 @@ function TaskCard({ task, canEdit, allUsers, onMove, onDelete }) {
           <div style={{fontSize:12,fontWeight:600,color:T.textSub,lineHeight:1.4,marginBottom:3}}>{task.title}</div>
           {task.desc&&<div style={{fontSize:11,color:T.textDim,lineHeight:1.4}}>{task.desc}</div>}
         </div>
-        {canEdit&&<button onClick={()=>onDelete(task.id)} style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:14,padding:0,flexShrink:0}}>×</button>}
+        {canEdit&&(
+          <div style={{display:"flex",gap:8,flexShrink:0}}>
+            <button onClick={()=>onEdit(task)} title="Editar" style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",padding:0,display:"flex",alignItems:"center"}}><Icon name="edit" size={13}/></button>
+            <button onClick={()=>onDelete(task.id)} title="Eliminar" style={{background:"none",border:"none",color:T.textFaint,cursor:"pointer",fontSize:14,padding:0,lineHeight:1}}>×</button>
+          </div>
+        )}
       </div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
         <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:PRIORITY_COLOR[task.priority]+"20",color:PRIORITY_COLOR[task.priority],border:`1px solid ${PRIORITY_COLOR[task.priority]}40`,fontWeight:600}}>{PRIORITY_LABEL[task.priority]}</span>
@@ -1139,9 +1144,15 @@ function TaskCard({ task, canEdit, allUsers, onMove, onDelete }) {
   );
 }
 
-function NewTaskModal({ userAccounts, allUsers, onSave, onClose, currentUser, activeProjectId }) {
+function TaskModal({ userAccounts, allUsers, onSave, onClose, currentUser, activeProjectId, task }) {
   const T = useT();
-  const [form, setForm] = useState({
+  const isEdit = !!task;
+  const [form, setForm] = useState(() => task ? {
+    title: task.title||"", desc: task.desc||"", status: task.status||"todo", priority: task.priority||"medium",
+    assignee_id: task.assignee_id||task.assignee||currentUser.id,
+    account_id: task.account_id||task.account||activeProjectId||userAccounts[0]?.id||"",
+    dueDate: task.dueDate||"", type: task.type||(currentUser.role==="client"?"client":"team"),
+  } : {
     title:"",desc:"",status:"todo",priority:"medium",
     assignee_id:currentUser.id,account_id:activeProjectId||userAccounts[0]?.id||"",
     dueDate:"",type:currentUser.role==="client"?"client":"team",
@@ -1152,7 +1163,7 @@ function NewTaskModal({ userAccounts, allUsers, onSave, onClose, currentUser, ac
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',system-ui,sans-serif"}}>
       <div style={{background:T.bg2,border:`1px solid ${T.border2}`,borderRadius:16,padding:28,width:440}}>
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:20}}>
-          <div style={{fontSize:14,fontWeight:700,color:T.text}}>Nueva tarea</div>
+          <div style={{fontSize:14,fontWeight:700,color:T.text}}>{isEdit?"Editar tarea":"Nueva tarea"}</div>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:20}}>×</button>
         </div>
         {[{k:"title",l:"Título",ph:"Descripción corta"},{k:"desc",l:"Descripción (opcional)",ph:"Más detalle..."}].map(({k,l,ph})=>(
@@ -1161,7 +1172,7 @@ function NewTaskModal({ userAccounts, allUsers, onSave, onClose, currentUser, ac
             <input value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} placeholder={ph} style={inp}/>
           </div>
         ))}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+        <div style={{display:"grid",gridTemplateColumns:isEdit?"1fr 1fr 1fr":"1fr 1fr",gap:10,marginBottom:12}}>
           <div>
             <div style={{fontSize:11,color:T.textDim,marginBottom:5}}>Prioridad</div>
             <select value={form.priority} onChange={e=>setForm(f=>({...f,priority:e.target.value}))} style={{...inp,padding:"9px 10px"}}>
@@ -1174,6 +1185,14 @@ function NewTaskModal({ userAccounts, allUsers, onSave, onClose, currentUser, ac
               <option value="team">Equipo</option><option value="client">Cliente</option>
             </select>
           </div>
+          {isEdit && (
+            <div>
+              <div style={{fontSize:11,color:T.textDim,marginBottom:5}}>Estado</div>
+              <select value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))} style={{...inp,padding:"9px 10px"}}>
+                {COLUMNS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+          )}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
           <div>
@@ -1195,8 +1214,8 @@ function NewTaskModal({ userAccounts, allUsers, onSave, onClose, currentUser, ac
         </div>
         <div style={{display:"flex",gap:10}}>
           <button onClick={onClose} style={{flex:1,padding:11,background:"none",border:`1px solid ${T.border2}`,borderRadius:8,color:T.textDim,cursor:"pointer"}}>Cancelar</button>
-          <button onClick={()=>{if(!form.title.trim())return;onSave({...form,id:"t"+Date.now()});}}
-            style={{flex:1,padding:11,background:"#e8572a",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontWeight:700}}>Crear tarea</button>
+          <button onClick={()=>{if(!form.title.trim())return;onSave(form);}}
+            style={{flex:1,padding:11,background:"#e8572a",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontWeight:700}}>{isEdit?"Guardar cambios":"Crear tarea"}</button>
         </div>
       </div>
     </div>
@@ -1206,6 +1225,7 @@ function NewTaskModal({ userAccounts, allUsers, onSave, onClose, currentUser, ac
 function TasksModule({ currentUser, userAccounts, allUsers, tasks, setTasks, activeProjectId }) {
   const T = useT();
   const [showModal, setShowModal] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
   const [viewFilter, setViewFilter] = useState("all");
   const isClient = currentUser.role==="client";
   const canEdit  = currentUser.role==="master"||currentUser.role==="team";
@@ -1222,6 +1242,20 @@ function TasksModule({ currentUser, userAccounts, allUsers, tasks, setTasks, act
     }
     setTasks(p=>[...p,task]);
     setShowModal(false); toast("Tarea creada");
+  }
+
+  async function handleUpdate(id, form) {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from("tasks").update({
+        title: form.title, description: form.desc,
+        status: form.status, priority: form.priority, type: form.type,
+        assignee_id: form.assignee_id||null, account_id: form.account_id||null,
+        due_date: form.dueDate||null,
+      }).eq("id", id);
+      if (error) { toast("Error al editar tarea: "+error.message,"error"); return; }
+    }
+    setTasks(prev=>prev.map(t=>t.id===id?{...t,...form}:t));
+    setEditingTask(null); toast("Tarea actualizada");
   }
 
   async function handleMove(id, status) {
@@ -1293,14 +1327,19 @@ function TasksModule({ currentUser, userAccounts, allUsers, tasks, setTasks, act
               </div>
               {colTasks.map(task=>(
                 <TaskCard key={task.id} task={task} canEdit={canEdit||isClient} allUsers={allUsers}
-                  onMove={handleMove} onDelete={handleDelete}/>
+                  onMove={handleMove} onDelete={handleDelete} onEdit={setEditingTask}/>
               ))}
               {colTasks.length===0&&<div style={{textAlign:"center",paddingTop:40,color:T.textFaint,fontSize:12}}>Sin tareas</div>}
             </div>
           );
         })}
       </div>
-      {showModal&&<NewTaskModal userAccounts={userAccounts} allUsers={allUsers} onSave={handleCreate} onClose={()=>setShowModal(false)} currentUser={currentUser} activeProjectId={activeProjectId}/>}
+      {(showModal||editingTask)&&(
+        <TaskModal userAccounts={userAccounts} allUsers={allUsers} currentUser={currentUser} activeProjectId={activeProjectId}
+          task={editingTask}
+          onSave={form=>editingTask?handleUpdate(editingTask.id,form):handleCreate({...form,id:"t"+Date.now()})}
+          onClose={()=>{setShowModal(false);setEditingTask(null);}}/>
+      )}
     </div>
   );
 }

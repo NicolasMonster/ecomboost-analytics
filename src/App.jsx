@@ -5141,7 +5141,9 @@ export default function App() {
       if (adIds.length > 0) {
         // image_url = cover del video en scontent CDN (funciona en browser)
         // thumbnail_url = puede ser lookaside.fbsbx.com (requiere cookies de Facebook)
-        const adMetaFields = "name,status,creative{thumbnail_url,image_url},adset{name}";
+        // asset_feed_spec/object_story_spec = fallback para creativos Advantage+ o
+        // de catálogo dinámico, donde thumbnail_url/image_url suelen venir vacíos.
+        const adMetaFields = "name,status,creative{thumbnail_url,image_url,object_story_spec,asset_feed_spec{images}},adset{name}";
         const batches = [];
         for (let i = 0; i < adIds.length; i += 50) {
           const ids = adIds.slice(i, i + 50).join(",");
@@ -5152,11 +5154,12 @@ export default function App() {
         }
         const results = await Promise.all(batches);
         results.forEach(res => {
-          if (res && !res.error && typeof res === "object") {
-            Object.entries(res).forEach(([id, ad]) => {
-              if (ad && !ad.error) adMetaMap[id] = ad;
-            });
-          }
+          if (!res || typeof res !== "object") return;
+          if (res.error) { console.error("Meta ad metadata batch error:", res.error); return; }
+          Object.entries(res).forEach(([id, ad]) => {
+            if (ad && !ad.error) adMetaMap[id] = ad;
+            else if (ad?.error) console.error(`Meta ad metadata error (ad ${id}):`, ad.error);
+          });
         });
       }
 
@@ -5373,15 +5376,26 @@ export default function App() {
           // thumbnail_url para videos suele ser lookaside.fbsbx.com (requiere cookies Facebook)
           thumbnailUrl: (() => {
             const c = meta.creative;
-            if (!c) return null;
+            if (!c) { console.warn(`Sin creative para ad ${row.ad_id} (${row.ad_name})`); return null; }
             const iurl = c.image_url;
             const turl = c.thumbnail_url;
             // Si image_url existe y es CDN público → usarla
             if (iurl && !iurl.includes("lookaside")) return iurl;
             // Si thumbnail_url es CDN público → usarla
             if (turl && !turl.includes("lookaside")) return turl;
+            // Fallback: creativos Advantage+ / catálogo dinámico no traen
+            // thumbnail_url/image_url — la imagen vive en asset_feed_spec u
+            // object_story_spec en su lugar.
+            const feedImg = c.asset_feed_spec?.images?.[0]?.url || c.asset_feed_spec?.images?.[0]?.permalink_url;
+            if (feedImg) return feedImg;
+            const storyImg = c.object_story_spec?.link_data?.picture
+              || c.object_story_spec?.link_data?.child_attachments?.[0]?.picture
+              || c.object_story_spec?.video_data?.image_url;
+            if (storyImg) return storyImg;
             // Último recurso: cualquier URL que haya
-            return iurl || turl || null;
+            const url = iurl || turl || null;
+            if (!url) console.warn(`Sin thumbnail resoluble para ad ${row.ad_id} (${row.ad_name}):`, c);
+            return url;
           })(),
           campaign: row.adset_name || meta.adset?.name || "",
           hookRate, thumbstopRate: hookRate,

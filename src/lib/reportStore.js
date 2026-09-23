@@ -88,12 +88,18 @@ export async function renameReport(id, name) {
   return null;
 }
 
+// Los reportes pueden vivir en Supabase o en localStorage (create/update caen al
+// navegador si Supabase falla), así que se borra en ambos lados.
 export async function deleteReport(id) {
+  let removed = false;
   if (isSupabaseConfigured) {
-    await supabase.from('saved_reports').delete().eq('id', id);
-    return;
+    const { data, error } = await supabase.from('saved_reports').delete().eq('id', id).select('id');
+    if (!error && data?.length) removed = true;
   }
-  lsSave(lsLoad().filter(r => r.id !== id));
+  const local = lsLoad();
+  const rest = local.filter(r => r.id !== id);
+  if (rest.length !== local.length) { lsSave(rest); removed = true; }
+  if (!removed) throw new Error('No se encontró el reporte para borrar');
 }
 
 export async function duplicateReport(id) {

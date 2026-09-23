@@ -3316,11 +3316,13 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
   }
 
   async function handleDelete(id){
-    await reportStore.deleteReport(id);
-    if(activeIdRef.current===id){setActiveReportId(null);setActiveReportName("");setSaveStatus("idle");}
+    try{
+      await reportStore.deleteReport(id);
+      if(activeIdRef.current===id){setActiveReportId(null);setActiveReportName("");setSaveStatus("idle");}
+      toast("Reporte eliminado","warn");
+    }catch(e){ toast("No se pudo eliminar el reporte: "+e.message,"error"); }
     setSavedReports(await reportStore.loadReports());
     setDeleteConfirmId(null);
-    toast("Reporte eliminado","warn");
   }
 
   async function handleRenameConfirm(){
@@ -3365,13 +3367,13 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
       {deleteConfirmId&&(
         <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.72)",zIndex:20,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:T.bg1,border:`1px solid ${T.border2}`,borderRadius:12,padding:24,width:320,boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
-            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:8}}>¿Eliminar reporte?</div>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:8}}>¿Estás seguro de que querés borrar este reporte?</div>
             <div style={{fontSize:13,color:T.textMuted,marginBottom:20}}>
               El reporte <b style={{color:T.text}}>"{savedReports.find(r=>r.id===deleteConfirmId)?.name}"</b> se eliminará permanentemente.
             </div>
             <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>setDeleteConfirmId(null)} style={{flex:1,padding:"10px 0",background:"none",border:`1px solid ${T.border2}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Cancelar</button>
-              <button onClick={()=>handleDelete(deleteConfirmId)} style={{flex:1,padding:"10px 0",background:"#dc2626",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>Eliminar</button>
+              <button onClick={()=>setDeleteConfirmId(null)} style={{flex:1,padding:"10px 0",background:"none",border:`1px solid ${T.border2}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>No</button>
+              <button onClick={()=>handleDelete(deleteConfirmId)} style={{flex:1,padding:"10px 0",background:"#dc2626",border:"none",borderRadius:8,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>Sí, borrar</button>
             </div>
           </div>
         </div>

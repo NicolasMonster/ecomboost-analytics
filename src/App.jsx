@@ -2734,6 +2734,7 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
     const prevConvRate  = prevClks>0?(prevPurch/prevClks)*100:0;
 
     const spend     = cv.inversion||0;
+    const revenue   = cv.facturacion||0;
     const roas      = cv.roas||0;
     const purchases = cv.conversiones||0;
     const cpa       = cv.costoCompra||0;
@@ -2799,9 +2800,10 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
         {monthlySel.includes("m_kpis")&&(
           <div style={{marginBottom:22}}>
             <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>📊 Métricas Importantes</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
               {[
                 {l:"Inversión",    v:`$${spend.toLocaleString()}`,       b:vBadge(spend,prevSpend)},
+                {l:"Facturación",  v:`$${revenue.toLocaleString()}`,     b:vBadge(revenue,prevRev)},
                 {l:"ROAS",         v:`${roas.toFixed(2)}x`,              b:vBadge(roas,prevRoas)},
                 {l:"Compras",      v:purchases.toLocaleString(),          b:vBadge(purchases,prevPurch)},
                 {l:"Costo/Compra", v:`$${cpa.toFixed(2)}`,               b:vBadge(cpa,prevCpa,true)},
@@ -5143,24 +5145,41 @@ export default function App() {
         // thumbnail_url = puede ser lookaside.fbsbx.com (requiere cookies de Facebook)
         // asset_feed_spec/object_story_spec = fallback para creativos Advantage+ o
         // de catálogo dinámico, donde thumbnail_url/image_url suelen venir vacíos.
-        const adMetaFields = "name,status,creative{thumbnail_url,image_url,object_story_spec,asset_feed_spec{images}},adset{name}";
-        const batches = [];
-        for (let i = 0; i < adIds.length; i += 50) {
-          const ids = adIds.slice(i, i + 50).join(",");
-          batches.push(
-            fetch(`https://graph.facebook.com/${META_V}/?ids=${ids}&fields=${adMetaFields}&access_token=${token}`)
-              .then(r => r.json())
-          );
-        }
-        const results = await Promise.all(batches);
-        results.forEach(res => {
-          if (!res || typeof res !== "object") return;
-          if (res.error) { console.error("Meta ad metadata batch error:", res.error); return; }
-          Object.entries(res).forEach(([id, ad]) => {
-            if (ad && !ad.error) adMetaMap[id] = ad;
-            else if (ad?.error) console.error(`Meta ad metadata error (ad ${id}):`, ad.error);
-          });
-        });
+        // Tier 1: miniatura en 480px (por defecto Meta manda 64×64 para videos)
+        // + campos de Advantage+/catálogo. Tier 2: lo mínimo conocido que anda.
+        const FIELD_TIERS = [
+          "name,status,adset{name},creative.thumbnail_width(480).thumbnail_height(480){thumbnail_url,image_url,object_story_spec,asset_feed_spec{images}}",
+          "name,status,adset{name},creative{thumbnail_url,image_url}",
+        ];
+        const fetchIds = (ids, fields) =>
+          fetch(`https://graph.facebook.com/${META_V}/?${new URLSearchParams({ ids: ids.join(","), fields, access_token: token })}`)
+            .then(r => r.json()).catch(e => ({ error: { message: e.message } }));
+        const collect = res => {
+          let n = 0;
+          Object.entries(res || {}).forEach(([id, ad]) => { if (ad && !ad.error && typeof ad === "object") { adMetaMap[id] = ad; n++; } });
+          return n;
+        };
+        // /?ids= falla ENTERO si un solo id ya no existe o no es accesible
+        // (anuncio borrado/archivado) → se perdían todas las miniaturas de golpe.
+        // Si el lote falla, reintentamos de a uno en grupos de 10.
+        const loadChunk = async ids => {
+          for (const fields of FIELD_TIERS) {
+            const res = await fetchIds(ids, fields);
+            if (res && !res.error) { collect(res); return; }
+            console.error("Meta ad metadata batch error:", res?.error);
+            // Error de sintaxis/campo → no tiene sentido reintentar de a uno con estos fields
+            if (/syntax|nonexisting field|unknown path|modifier/i.test(res?.error?.message || "")) continue;
+            let got = 0;
+            for (let i = 0; i < ids.length; i += 10) {
+              const singles = await Promise.all(ids.slice(i, i + 10).map(id => fetchIds([id], fields)));
+              singles.forEach(s => { if (s && !s.error) got += collect(s); });
+            }
+            if (got > 0) return;
+          }
+        };
+        const chunks = [];
+        for (let i = 0; i < adIds.length; i += 50) chunks.push(adIds.slice(i, i + 50));
+        await Promise.all(chunks.map(loadChunk));
       }
 
       // Waterfall: evita doble conteo. "purchase" primero = tipo unificado que Ads Manager muestra.

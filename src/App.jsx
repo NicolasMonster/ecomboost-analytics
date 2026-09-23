@@ -5147,9 +5147,9 @@ export default function App() {
       if (adInsJson.error)   throw new Error(`Creativos: [${adInsJson.error.code}] ${adInsJson.error.message}`);
 
       // PASO 2: obtener metadata de exactamente los ads que tienen insights.
-      // NO usar /ads?limit=200 — eso trae los primeros 200 sin filtrar por período
-      // y los ads activos pueden estar más allá de esa posición → thumbnailUrl = null.
-      // Con /?ids=... pedimos solo los que necesitamos, sin importar cuántos ads totales haya.
+      // NO usar /ads?limit=200 sin filtro — trae los primeros 200 sin importar el
+      // período y los ads activos pueden quedar afuera → thumbnailUrl = null.
+      // Se filtra el edge /ads por los ids exactos que tienen insights.
       const adIds = [...new Set((adInsJson.data||[]).map(r=>r.ad_id).filter(Boolean))];
       const adMetaMap = {};
       const metaErrors = [];
@@ -5160,34 +5160,40 @@ export default function App() {
         // de catálogo dinámico, donde thumbnail_url/image_url suelen venir vacíos.
         // Tier 1: miniatura en 480px (por defecto Meta manda 64×64 para videos)
         // + campos de Advantage+/catálogo. Tier 2: lo mínimo conocido que anda.
+        // Tier 1: miniatura en 480px (por defecto Meta manda 64×64 para videos)
+        // + campos de Advantage+/catálogo. Tier 2: lo mínimo conocido que anda.
         const FIELD_TIERS = [
-          "name,status,adset{name},creative.thumbnail_width(480).thumbnail_height(480){thumbnail_url,image_url,object_story_spec,asset_feed_spec{images}}",
-          "name,status,adset{name},creative{thumbnail_url,image_url}",
+          "id,name,status,adset{name},creative.thumbnail_width(480).thumbnail_height(480){thumbnail_url,image_url,object_story_spec,asset_feed_spec{images}}",
+          "id,name,status,adset{name},creative{thumbnail_url,image_url}",
         ];
-        const fetchIds = (ids, fields) =>
-          fetch(`https://graph.facebook.com/${META_V}/?${new URLSearchParams({ ids: ids.join(","), fields, access_token: token })}`)
-            .then(r => r.json()).catch(e => ({ error: { message: e.message } }));
-        const collect = res => {
-          let n = 0;
-          Object.entries(res || {}).forEach(([id, ad]) => { if (ad && !ad.error && typeof ad === "object") { adMetaMap[id] = ad; n++; } });
-          return n;
+        const ALL_STATUSES = ["ACTIVE","PAUSED","ARCHIVED","CAMPAIGN_PAUSED","ADSET_PAUSED","IN_PROCESS","WITH_ISSUES","DISAPPROVED","PENDING_REVIEW","PREAPPROVED","PENDING_BILLING_INFO"];
+        const getJson = url => fetch(url).then(r => r.json()).catch(e => ({ error: { message: e.message } }));
+        const noteErr = err => {
+          console.error("Meta ad metadata error:", err);
+          const em = `[${err?.code ?? "?"}${err?.error_subcode ? "/"+err.error_subcode : ""}] ${err?.message || "sin mensaje"}`;
+          if (!metaErrors.includes(em)) metaErrors.push(em);
         };
-        // /?ids= falla ENTERO si un solo id ya no existe o no es accesible
-        // (anuncio borrado/archivado) → se perdían todas las miniaturas de golpe.
-        // Si el lote falla, reintentamos de a uno en grupos de 10.
+        // Meta dio de baja el parámetro ?ids= (v26+). Se piden los anuncios por el
+        // edge de la cuenta filtrando por id; si eso falla, de a uno por nodo.
+        const fetchEdge = (ids, fields) => getJson(`https://graph.facebook.com/${META_V}/${accId}/ads?${new URLSearchParams({
+          fields, limit: String(ids.length), access_token: token,
+          filtering: JSON.stringify([{ field:"id", operator:"IN", value:ids }, { field:"effective_status", operator:"IN", value:ALL_STATUSES }]),
+        })}`);
+        const fetchNode = (id, fields) => getJson(`https://graph.facebook.com/${META_V}/${id}?${new URLSearchParams({ fields, access_token: token })}`);
         const loadChunk = async ids => {
           for (const fields of FIELD_TIERS) {
-            const res = await fetchIds(ids, fields);
-            if (res && !res.error) { collect(res); return; }
-            console.error("Meta ad metadata batch error:", res?.error);
-            const em = `[${res?.error?.code ?? "?"}${res?.error?.error_subcode ? "/"+res.error.error_subcode : ""}] ${res?.error?.message || "sin mensaje"}`;
-            if (!metaErrors.includes(em)) metaErrors.push(em);
-            // Error de sintaxis/campo → no tiene sentido reintentar de a uno con estos fields
-            if (/syntax|nonexisting field|unknown path|modifier/i.test(res?.error?.message || "")) continue;
+            const res = await fetchEdge(ids, fields);
+            if (res && !res.error && Array.isArray(res.data)) {
+              res.data.forEach(ad => { if (ad?.id) adMetaMap[ad.id] = ad; });
+              if (res.data.length > 0) return;
+            } else {
+              noteErr(res?.error);
+              if (/syntax|nonexisting field|unknown path|modifier/i.test(res?.error?.message || "")) continue;
+            }
             let got = 0;
             for (let i = 0; i < ids.length; i += 10) {
-              const singles = await Promise.all(ids.slice(i, i + 10).map(id => fetchIds([id], fields)));
-              singles.forEach(s => { if (s && !s.error) got += collect(s); });
+              const singles = await Promise.all(ids.slice(i, i + 10).map(id => fetchNode(id, fields)));
+              singles.forEach(s => { if (s && !s.error && s.id) { adMetaMap[s.id] = s; got++; } else if (s?.error) noteErr(s.error); });
             }
             if (got > 0) return;
           }

@@ -1010,6 +1010,18 @@ function CreativosModule({ account, goals }) {
   return (
     <div>
       {!isLive && <div style={{background:"#f59e0b11",border:"1px solid #f59e0b33",borderRadius:8,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#f59e0b"}}>Mostrando datos de demo — conectá la Meta API para ver métricas reales.</div>}
+      {isLive && (() => {
+        const d = account.creativesDiag;
+        const faltan = creatives.filter(c => !c.thumbnailUrl).length;
+        if (!faltan) return null;
+        return (
+          <div style={{background:"#f8717111",border:"1px solid #f8717133",borderRadius:8,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#f87171",lineHeight:1.6}}>
+            <b>Miniaturas:</b> {creatives.length-faltan} de {creatives.length} cargadas.
+            {d ? <> Meta devolvió datos de {d.conMetadata} de {d.pedidos} anuncios.</> : <> Sincronizá de nuevo para ver el diagnóstico.</>}
+            {d?.errores?.length > 0 && <div style={{fontFamily:"monospace",fontSize:11,marginTop:4,wordBreak:"break-word"}}>Error de Meta: {d.errores.join(" · ")}</div>}
+          </div>
+        );
+      })()}
 
       {/* Campaign selector */}
       <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16}}>
@@ -5140,6 +5152,7 @@ export default function App() {
       // Con /?ids=... pedimos solo los que necesitamos, sin importar cuántos ads totales haya.
       const adIds = [...new Set((adInsJson.data||[]).map(r=>r.ad_id).filter(Boolean))];
       const adMetaMap = {};
+      const metaErrors = [];
       if (adIds.length > 0) {
         // image_url = cover del video en scontent CDN (funciona en browser)
         // thumbnail_url = puede ser lookaside.fbsbx.com (requiere cookies de Facebook)
@@ -5167,6 +5180,8 @@ export default function App() {
             const res = await fetchIds(ids, fields);
             if (res && !res.error) { collect(res); return; }
             console.error("Meta ad metadata batch error:", res?.error);
+            const em = `[${res?.error?.code ?? "?"}${res?.error?.error_subcode ? "/"+res.error.error_subcode : ""}] ${res?.error?.message || "sin mensaje"}`;
+            if (!metaErrors.includes(em)) metaErrors.push(em);
             // Error de sintaxis/campo → no tiene sentido reintentar de a uno con estos fields
             if (/syntax|nonexisting field|unknown path|modifier/i.test(res?.error?.message || "")) continue;
             let got = 0;
@@ -5435,7 +5450,13 @@ export default function App() {
         };
       });
 
-      const payload = { funnel, daily, campaigns, creatives };
+      const creativesDiag = {
+        pedidos: adIds.length,
+        conMetadata: Object.keys(adMetaMap).length,
+        conMiniatura: creatives.filter(c => c.thumbnailUrl).length,
+        errores: metaErrors.slice(0, 3),
+      };
+      const payload = { funnel, daily, campaigns, creatives, creativesDiag };
       setMetaCache(accountId, from, to, payload);
       setAllAccounts(prev => prev.map(a => a.id===accountId ? {...a, ...payload} : a));
       setMetaError(null);

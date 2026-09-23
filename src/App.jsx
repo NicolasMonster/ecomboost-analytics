@@ -2535,9 +2535,23 @@ async function rasterizeSvgs(root) {
 }
 
 // Convierte cada hoja (.pdf-sheet) en una página del PDF — una hoja = una página.
+// Las miniaturas de Meta vienen de otro dominio: se incrustan como dataURL antes
+// de capturar para que html2canvas no las descarte.
+async function inlineImages(root) {
+  const imgs = Array.from(root.querySelectorAll("img")).filter(i => i.src && !i.src.startsWith("data:"));
+  await Promise.all(imgs.map(async img => {
+    try {
+      const blob = await fetch(img.src, { mode: "cors" }).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); });
+      const url = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+      await new Promise(res => { img.onload = res; img.onerror = res; img.src = url; });
+    } catch (e) { console.warn("No se pudo incrustar imagen del reporte:", img.src, e); }
+  }));
+}
+
 async function sheetsToPdf(pagesEl, filename) {
   await loadPdfLibs();
   await rasterizeSvgs(pagesEl);
+  await inlineImages(pagesEl);
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const sheets = Array.from(pagesEl.querySelectorAll(".pdf-sheet"));
@@ -2927,8 +2941,8 @@ function ReportBuilder({ account, tasks, dateRange, onDateRangeChange }) {
               <tbody>
                 {[...account.creatives].sort((a,b)=>b.roas-a.roas).slice(0,10).map((c,i)=>(
                   <tr key={c.id} style={{background:i%2===0?"#fff":"#fafafa"}}>
-                    <td style={{...cs2,width:36,padding:4}}>
-                      {c.thumbnailUrl?<img src={c.thumbnailUrl} alt="" style={{width:32,height:32,objectFit:"cover",borderRadius:4,display:"block"}}/>:<div style={{width:32,height:32,background:"#f3f4f6",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name={c.type==="VIDEO"?"video":"image"} size={15} color="#9ca3af"/></div>}
+                    <td style={{...cs2,width:48,padding:4}}>
+                      {c.thumbnailUrl?<img src={c.thumbnailUrl} crossOrigin="anonymous" alt="" style={{width:44,height:44,objectFit:"cover",borderRadius:4,display:"block"}}/>:<div style={{width:44,height:44,background:"#f3f4f6",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name={c.type==="VIDEO"?"video":"image"} size={15} color="#9ca3af"/></div>}
                     </td>
                     <td style={{...cs2,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{c.name}</td>
                     <td style={cs2}>{c.ctr.toFixed(2)}%</td>

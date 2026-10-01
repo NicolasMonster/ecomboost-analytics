@@ -7,7 +7,6 @@ import {
 } from "recharts";
 import { supabase, isSupabaseConfigured } from "./lib/supabase";
 import * as reportStore from "./lib/reportStore";
-import AuditoriaPage from "./modules/auditoria/AuditoriaPage";
 import GananciasModule from "./modules/ganancias/GananciasModule";
 
 // ─── ICONS (outline, estilo Lucide) ────────────────────────────────────────────
@@ -4119,14 +4118,13 @@ const NAV_ITEMS = [
   {id:"campaigns", label:"Campañas",     icon:"campaigns"},
   {id:"creatives", label:"Creativos",    icon:"creatives"},
   {id:"tasks",     label:"Tareas",       icon:"tasks"},
-  {id:"audit",      label:"Auditoría",    icon:"audit"},
   {id:"ganancias",  label:"Ganancias",    icon:"ganancias"},
   {id:"report",     label:"Reporte",      icon:"report"},
   {id:"profit",     label:"Rentabilidad", icon:"profit"},
   {id:"settings",  label:"Ajustes",      icon:"settings"},
 ];
 // Páginas visibles para el rol cliente — sin Reporte ni Ajustes.
-const CLIENT_ALLOWED_PAGES = ["onboarding","dashboard","campaigns","creatives","tasks","audit","ganancias","profit"];
+const CLIENT_ALLOWED_PAGES = ["onboarding","dashboard","campaigns","creatives","tasks","ganancias","profit"];
 
 // ─── OVERVIEW MODULE ─────────────────────────────────────────────────────────
 function OverviewModule({ accounts, tasks, onSelect }) {
@@ -4748,6 +4746,79 @@ function CustomMetricsSection({ account, selected, customDefs, onOpen }) {
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
+// ─── SEMÁFORO SEMANAL ────────────────────────────────────────────────────────
+// Agrupa los días del período en semanas de 7 días y colorea cada semana según
+// su ROAS contra el ROAS objetivo de la cuenta (igual que la planilla de
+// rendimiento semanal): verde si lo alcanza, amarillo si llega al 70%, rojo abajo.
+const SEMAFORO_AMARILLO = 0.7;
+function semaforoColor(roas, goal) {
+  if (!goal) return null;
+  if (roas >= goal) return { c:"#22c55e", l:"En objetivo" };
+  if (roas >= goal * SEMAFORO_AMARILLO) return { c:"#eab308", l:"Cerca" };
+  return { c:"#ef4444", l:"Bajo objetivo" };
+}
+function WeeklySemaforo({ daily, roasGoal }) {
+  const T = useT();
+  const days = [...daily].filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d.day||"")).sort((a,b)=>a.day.localeCompare(b.day));
+  if (!days.length) return null;
+  const weeks = [];
+  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+  const rows = weeks.map((w, i) => {
+    const spend = w.reduce((s,d)=>s+(d.spend||0),0);
+    const rev   = w.reduce((s,d)=>s+(d.revenue||0),0);
+    const conv  = w.reduce((s,d)=>s+(d.conversions||0),0);
+    const clk   = w.reduce((s,d)=>s+(d.clicks||0),0);
+    const impr  = w.reduce((s,d)=>s+(d.impressions||0),0);
+    const ctr   = impr>0 ? w.reduce((s,d)=>s+(d.ctr||0)*(d.impressions||0),0)/impr : 0;
+    const fmt = d => d.slice(8,10)+"/"+d.slice(5,7);
+    return { n:i+1, from:fmt(w[0].day), to:fmt(w[w.length-1].day), spend, rev, conv,
+      roas: spend>0?rev/spend:0, cpa: conv>0?spend/conv:0, ctr,
+      tc: clk>0?conv/clk*100:0, ticket: conv>0?rev/conv:0 };
+  });
+  const money = v => "$" + Math.round(v).toLocaleString("es-AR");
+  const varPct = (cur, prev) => prev ? Math.round((cur/prev-1)*100) : null;
+  const th = {padding:"8px 10px",fontSize:10,fontWeight:700,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right",whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`};
+  const td = {padding:"9px 10px",fontSize:12,color:T.text,textAlign:"right",whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`};
+  return (
+    <div style={{background:T.bg1,border:`1px solid ${T.border}`,borderRadius:12,padding:"16px 20px",marginTop:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:8,marginBottom:10}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.text}}>Semáforo de rendimiento semanal</div>
+        <div style={{fontSize:11,color:T.textMuted}}>
+          {roasGoal ? <>ROAS objetivo <b>{roasGoal}x</b> · 🟢 ≥ objetivo · 🟡 ≥ {Math.round(SEMAFORO_AMARILLO*100)}% · 🔴 menos</> : "Cargá un ROAS objetivo en Objetivos para ver el semáforo"}
+        </div>
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr>
+            <th style={{...th,textAlign:"left"}}>Semana</th><th style={th}>Inversión</th><th style={th}>Compras</th>
+            <th style={th}>Facturación</th><th style={th}>ROAS</th><th style={th}>Var. ROAS</th><th style={th}>Costo/compra</th>
+            <th style={th}>CTR único</th><th style={th}>Tasa conv.</th><th style={th}>Ticket prom.</th><th style={{...th,textAlign:"center"}}>Semáforo</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r,i) => {
+              const s = semaforoColor(r.roas, roasGoal);
+              const v = i>0 ? varPct(r.roas, rows[i-1].roas) : null;
+              return (
+                <tr key={r.n}>
+                  <td style={{...td,textAlign:"left"}}><b>Semana {r.n}</b> <span style={{color:T.textMuted,fontSize:11}}>{r.from}–{r.to}</span></td>
+                  <td style={td}>{money(r.spend)}</td><td style={td}>{r.conv}</td><td style={td}>{money(r.rev)}</td>
+                  <td style={{...td,fontWeight:700}}>{r.roas.toFixed(2)}x</td>
+                  <td style={{...td,color:v==null?T.textMuted:v>=0?"#22c55e":"#ef4444"}}>{v==null?"—":(v>0?"+":"")+v+"%"}</td>
+                  <td style={td}>{money(r.cpa)}</td><td style={td}>{r.ctr.toFixed(1)}%</td>
+                  <td style={td}>{r.tc.toFixed(1)}%</td><td style={td}>{money(r.ticket)}</td>
+                  <td style={{...td,textAlign:"center"}}>{s
+                    ? <span title={s.l} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:11,color:s.c,fontWeight:700}}><span style={{width:12,height:12,borderRadius:"50%",background:s.c,boxShadow:`0 0 6px ${s.c}88`}}/>{s.l}</span>
+                    : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function DashboardPage({ account, compareData }) {
   const T = useT();
   const [showCM, setShowCM] = useState(false);
@@ -4814,6 +4885,7 @@ function DashboardPage({ account, compareData }) {
         <PerfChart daily={account.daily||[]} color={account.color||"#e8572a"} compareDaily={compareData?.daily}/>
       </div>
       <CustomMetricsSection account={account} selected={selectedCM} customDefs={customDefs} onOpen={()=>setShowCM(true)}/>
+      <WeeklySemaforo daily={account.daily||[]} roasGoal={g.roas}/>
       {showCM && <CustomMetricsModal selected={selectedCM} customDefs={customDefs} onSave={(ids,defs)=>{saveCM(ids,defs);setShowCM(false);}} onClose={()=>setShowCM(false)}/>}
     </div>
   );
@@ -4833,7 +4905,7 @@ export default function App() {
     try { return localStorage.getItem("eb_active_project") || null; } catch { return null; }
   });
   const [page, setPage] = useState(() => {
-    try { return localStorage.getItem("eb_page") || "dashboard"; } catch { return "dashboard"; }
+    try { const pg = localStorage.getItem("eb_page"); return pg && pg !== "audit" ? pg : "dashboard"; } catch { return "dashboard"; }
   });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showPicker, setShowPicker] = useState(false);
@@ -5538,19 +5610,6 @@ export default function App() {
       case "campaigns": return activeAccount ? <div style={{padding:"20px 24px"}}><CampaignsTable campaigns={activeAccount.campaigns||[]} goals={activeAccount.goals||{roas:3,cpa:10,ctr:1.5}}/></div> : noAcc;
       case "creatives": return activeAccount ? <CreativosModule account={activeAccount} goals={activeAccount.goals||{}}/> : noAcc;
       case "tasks":     return <TasksModule userAccounts={allAccounts} allUsers={allUsers} tasks={tasks} setTasks={setTasks} currentUser={user} activeProjectId={activeProjectId}/>;
-      case "audit":     return activeAccount
-        ? <AuditoriaPage
-            account={activeAccount}
-            currentUser={user}
-            allUsers={allUsers}
-            dateRange={dateRange}
-            T={T}
-            onTasksChanged={()=>{
-              supabase.from("tasks").select("*").order("created_at")
-                .then(({data})=>setTasks(data||[]));
-            }}
-          />
-        : noAcc;
       case "ganancias": return <GananciasModule account={activeAccount} currentUser={user} T={T} onAccountUpdated={(updatedAcc)=>setAllAccounts(prev=>prev.map(a=>a.id===updatedAcc.id?{...a,...updatedAcc}:a))}/>;
       // El reporte se renderiza SOLO en el overlay de abajo (reportOpen). Montarlo
       // también acá creaba una segunda instancia con su propio estado y su propio
